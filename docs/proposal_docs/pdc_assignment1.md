@@ -1,0 +1,453 @@
+
+
+SchoolofElectricalEngineering&Computer
+Sciences(SEECS),
+NationalUniversityofScienceandTechnology
+## (NUST),
+SectorH-12,Islamabad
+Program:BSComputerScience   Section:13-E
+Session:Spring2026   Semester:6th
+CourseTitle:ParallelandDistributedComputing
+
+ProjectProposal:DistributedSGD-Parameter
+ServervsRingAllReduce
+ProblemStatement
+## Therapidgrowthofdeeplearningmodels,frommillionstotrillionsofparameters,hasmade
+single-nodetraininginfeasibleduetotheMemoryWall,wheremodeldataexceedsaccelerator
+memorycapacity.Asaresult,distributedstochasticgradientdescent(SGD)hasbecome
+essential.However,thisintroducestheCommunicationWall,whereinter-nodecommunication
+andgradientsynchronizationdominatetrainingtime,oftenexceeding90%oftotalexecution.
+AkeychallengeindistributedSGDismaintainingaconsistentglobalmodelacrossworkers
+affectedbyperformancevariability(stragglers).TraditionalParameterServer(PS)architectures
+enableasynchronousupdatesbutsufferfromgradientstalenessandbandwidthbottlenecks.In
+contrast,decentralizedapproacheslikeRingAll-Reduce(RAR)achievebandwidthefficiency
+butenforcestrictsynchronization,makingthemvulnerabletoslownodes.Bridgingthese
+approachestoachievebothefficiencyandresilienceremainsanopenprobleminmodern
+distributedtrainingsystems.
+DistributedSystemsChallenge
+CommunicationPrimitivesandTopology
+Theefficiencyofgradientaggregationisgovernedbyunderlyingcommunicationprimitives:
+broadcast,scatter,gather,andreduce.
+
+●Broadcast:Aone-to-manyoperationwhereasinglenodedistributesthesamecomplete
+datatoallothernodes.InaPSarchitecture,themasternodebroadcastsupdated
+parameterstoallworkers.
+●ScatterandGather:Scatterpartitionsadatablockanddistributesthesegmentsacross
+thecluster,whileGatherperformstheinverse,collectingsegmentsontoasinglenode.
+Thesearefundamentaltothe"Reduce-Scatter"phaseofmodernAll-Reducealgorithms.
+●All-Reduce:Amany-to-manyoperationthatcombinesdatafromallnodesusinga
+reductionfunction(typicallysummation)andreturnstheresulttoallnodes.
+ConsistencyandSynchronizationModels
+## Thesynchronizationmodeldetermineshowthesystemmanagestherelationshipbetween
+computationandcommunication.
+Theprimarysystemschallengeisthatmodernnetworkstacks(e.g.,standardTCP/IP)and
+hardwarearchitectures(unbalancedPCIevs.networkbandwidth)areoftenoptimizedfor
+generictrafficratherthanthehigh-frequency,large-payload,many-to-oneorall-to-allpatterns
+requiredbydistributedSGD.ThisleadstohardwareresourcecontentionwhereCPU-managed
+schedulingandfrequentkernellauncheslimittheoverallthroughput.
+
+LiteratureReviewSummary
+## Thefollowinganalysisexamineselevenseminalandrecentresearchpaperstosynthesizethe
+evolutionandcurrentstateofdistributedSGDarchitectures.
+1.ScalingDistributedMachineLearningwiththeParameterServer(Lietal.,
+## 2014)
+Lietal.proposedathird-generationParameterServer(PS)frameworkdesignedtohandlethe
+scaleofindustrialmachinelearningproblemsinvolvingupto10^{12}parameters.Thecore
+innovationofthisworkwasthetreatmentofparametersasagloballysharedkey-valuestore,
+partitionedacrossagroupofservernodestoeliminatesingle-pointbottlenecks.Thesystem
+introducedrange-basedvectorclockstotrackparameterversionsacrossadistributedgraph,
+allowingforflexibleconsistencymodelslikeSSPandASP.
+●Contribution:Demonstratedelasticscalability,whereserversandworkerscanbe
+addedorremovedwithoutrestartingthejob,andfaulttolerancethroughlivereplication.
+●TechnicalDetail:Useda"KKTfilter"tosuppressthetransmissionofinsignificant
+gradients,reducingnetworktrafficbyover93%insparsemodeltraining.
+2.Horovod:FastandEasyDistributedDeepLearninginTensorFlow
+(Sergeev&DelBalso,2018)
+InresponsetothecomplexityandscalingissuesofearlyTensorFlowPSimplementations,
+SergeevandDelBalsointroducedHorovod.ByutilizingtheRingAll-Reducealgorithm,
+Horovodallowedfornear-linearscalingoftrainingthroughputonhigh-performanceclusters.
+●Contribution:Introduced"TensorFusion,"anoptimizationthatbatchessmallgradients
+intoasinglelargebuffertominimizetheoverheadofmultipleAll-Reducecalls.
+●TechnicalDetail:LeveragedMPI(MessagePassingInterface)andNVIDIA’sNCCLfor
+highlyoptimizedGPU-to-GPUcommunication,enablingefficientuseofhigh-speed
+interconnectslikeNVLink.
+3.Accurate,LargeMinibatchSGD:TrainingImageNetin1Hour(Goyalet
+al.,2017)
+ThisworkfocusedonthestatisticalchallengesofscalingsynchronousSGD.Bytraininga
+ResNet-50modelon256GPUswithamassivebatchsizeof8,192,theauthorsprovedthat
+synchronousRARcouldmatchtheaccuracyofsmall-batchtrainingifhyperparameterswere
+scaledcorrectly.
+●Contribution:Establishedthe"LinearScalingRule"(multiplyinglearningratebykwhen
+batchsizeismultipliedbyk)andagradualwarmupstrategytostabilizeearlytraining.
+●TechnicalDetail:Demonstrated90%scalingefficiencywhenmovingfrom8to256
+GPUsoncommodityhardware.
+
+4.CanDecentralizedAlgorithmsOutperformCentralizedAlgorithms?(Lian
+etal.,2017)
+Lianetal.providedarigoroustheoreticalfoundationfordecentralizedSGD(D-SGD),proving
+thatitcanachievethesameasymptoticlinearspeedupascentralizedSGDwhileavoidingthe
+server-sidebandwidthbottleneck.
+●Contribution:Showedthatinbandwidth-limitedenvironments,D-SGDoutperformsthe
+PS-workermodelbecausecommunicationisdistributedevenlyacrossallnodes.
+●TechnicalDetail:HighlightedthattheeffectivenessofD-SGDdependsonthespectral
+gapofthecommunicationgraph;well-connectedgraphs(likeexponentialgraphs)
+generalizebetterthansparserings.
+5.DeepLearningwithElasticAveragingSGD(Zhangetal.,2015)
+TheEASGDalgorithmintroducedanovel"elasticforce"mechanismtolinklocalworker
+parameterswithacentralvariableontheserver.UnlikestandardPSmodels,workersarenot
+requiredtopullthefullmodelateverystep;theycommunicateperiodicallytopullthecenter
+variabletowardtheirlocalstate.
+●Contribution:Enabledmoreexplorationbyallowinglocalvariablestofluctuatefurther
+fromthecenter,whichhelpsinescapinglocaloptimainnon-convexlandscapes.
+●TechnicalDetail:Foundthatallowingasynchronyandmodel"slack"canimprove
+convergencespeedandreducecommunicationfrequencycomparedtosimpleperiodic
+averaging.
+6.BytePS:AHigh-PerformanceHeterogeneousParameterServer(Jianget
+al.,2020)
+BytePSre-envisionedthePSarchitectureformoderncloudclusterswheremachineshave
+multipleGPUsandsignificantCPUresources.ItutilizesbothGPUsandCPUsforaggregation,
+employingahierarchicalstrategytooptimizecommunication.
+●Contribution:Achievedupto2timesthetrainingspeedofHorovod+NCCLin
+BERT-largetrainingbyleveragingunderutilizedCPUbandwidthforsummation.
+●TechnicalDetail:Re-implementedinter-machinecommunicationtoavoidMPI
+overhead,usingpriority-basedschedulingandtensorpartitioningtooverlap
+communicationwithcomputation.
+7.StragglAR:AcceleratingAll-ReducewithaPersistentStraggler(Devrajet
+al.,2024/2025)
+StragglARtargetstheprimaryweaknessofRAR:stragglersensitivity.Itimplementsa"parallel
+All-Reduce"thatexploitsthenaturalvariationinGPUexecutiontimes.
+●Contribution:Proposedanasymmetriccollectivewhere"fast"nodesperformapartial
+Reduce-Scatterwhilewaitingforthestraggler,resultingina2timestheoreticalspeedup.
+
+●TechnicalDetail:Onan8-GPUserver,StragglARyieldeda22%improvementover
+state-of-the-artNCCLalgorithmsinthepresenceofapersistentstraggler.
+8.Geo-DistributedMachineLearningwithGaia(Hsiehetal.,2017)
+Gaiaaddressestheextremecommunicationconstraintsoftrainingmodelsacrossmultipledata
+centersovertheWideAreaNetwork(WAN).
+●Contribution:Introducedthe"SignificanceFilter,"whichonlycommunicatesgradient
+updatesthatexceedathresholdofsignificance,reducingWANtrafficbyupto95%.
+●TechnicalDetail:Usesamirror-clocksynchronizationmodeltoensurethatdifferent
+datacentersdonotdrifttoofarapart,balancinglocalautonomywithglobalconsistency.
+9.Pipe-SGD:APipelinedDistributedTrainingAlgorithm(Songetal.,2019)
+Pipe-SGDintegratesRingAll-Reducewithpipeliningtohidecommunicationcostsin
+decentralizedsystems.
+●Contribution:Achievedhighperformancebyallowingthecommunicationofiterationk
+tooverlapwiththecomputationofiterationk+1.
+●TechnicalDetail:Provedthatthestalenessintroducedbypipeliningremainsconstant,
+allowingforstableconvergenceifthedelayisaccountedforinthelearningrate.
+10.EDiT:EfficientDistributedTrainingforLLMs(Zhuetal.,2025)
+EDiTfocusesonthetrainingoflargelanguagemodelsusingacombinationofLocalSGDand
+modelsharding.
+●Contribution:Introducedlayer-wiseparametersynchronizationduringtheforwardpass,
+effectivelyoverlappingthe"fetch"offuturelayerparameterswithcurrentlayer
+computation.
+●TechnicalDetail:Employsa"Pseudo-GradientPenalty"strategytodetectandsideline
+anomalousworkercontributionsbasedontheirgradientnorms,improvingstabilityin
+heterogeneousenvironments.
+11.Strategy-Switch:FromAll-ReducetoParameterServer(2025)
+Thispaperexploresahybridtrainingparadigmthattransitionsfromdecentralizedtocentralized
+architecturesastrainingprogresses.
+●Contribution:DemonstratedthatinitiatingtrainingwithRAR(highaccuracy)and
+switchingtoasynchronousPS(highspeed)afterthemodelstabilizescanyielda1.14x
+speedup.
+●TechnicalDetail:Definedanempiricalrulebasedonvalidationlossstabilitytotrigger
+theswitch,ensuringthattheaccuracylossiskeptbelow0.1%.
+
+ComparativeSummaryTableofPeer-ReviewedLiterature
+PaperArchitectureKey
+## Mechanism
+SynchronizationScaling
+## Limit
+## Primary
+## Bottleneck
+## Lietal.
+## (2014)
+## Centralized
+## PS
+Key-Value
+## Store,
+## Vector
+## Clocks
+Asynchronous/SSP10^{12}
+## Parameters
+## Server
+## Bandwidth
+(Many-to-One)
+## Sergeev
+etal.
+## (2018)
+## Decentralized
+## Ring
+## Ring
+All-Reduce,
+## Tensor
+## Fusion
+BulkSynchronousO(N)
+## Bandwidth
+Stragglers,High
+Latency(O(N))
+## Goyalet
+al.(2017)
+## Decentralized
+## Ring
+LinearLR
+## Scaling,
+## Warmup
+Synchronous256GPUsGeneralization
+(BatchSize
+## Cap)
+## Lianet
+al.(2017)
+DecentralizedPeer-to-Pee
+rGossip
+SynchronousLinear
+## Speedup
+## Topology
+SpectralGap
+## Zhanget
+al.(2015)
+## Centralized
+## PS
+## Elastic
+## Force,
+## Slack
+## Models
+AsynchronousComm-Effic
+iency
+## Hyperparameter
+## Sensitivity
+
+## Jianget
+al.(2020)
+## Hybrid
+PS/Ring
+## CPU
+## Summation,
+## Pipelining
+PrioritySync256+GPUsNICBandwidth
+## Mismatch
+## Devrajet
+al.(2025)
+AdaptiveRingStraggler-A
+ware
+## Collective
+AsymmetricSync2x
+## Speedup
+## Straggler
+## Identity
+## Persistence
+## Hsiehet
+al.(2017)
+Geo-Distribut
+edPS
+## Significance
+## Filtering
+MirrorClockWAN
+(Global)
+HighNetwork
+## Latency
+## Songet
+al.(2019)
+## Pipelined
+## Ring
+Comm-Com
+pOverlap
+ConstantDelayPipelined
+## Steps
+## Gradient
+## Staleness
+## Zhuetal.
+## (2025)
+## Sharded
+LocalSGD
+## Layer-wise
+Forward-Sy
+nc
+PeriodicLLMScaleMemoryfor
+ShardReplicas
+## Strategy-
+## Switch
+## (2025)
+HybridDynamic
+## Architecture
+## Swap
+Phase-Based1.14x
+## Speedup
+## Manual
+## Transition
+## Thresholds
+
+IdentifiedLimitationsandExplicitGapAnalysis
+Thetechnicalreviewofexistingliteraturerevealsseveralpersistentunresolvedproblemsthat
+constrainthescalabilityandefficiencyofdistributedSGD.
+1.UnresolvedProblem:Stochasticvs.PersistentHeterogeneity
+Most"heterogeneity-aware"solutions,suchasStragglARandBytePS,operateunderthe
+assumptionof"persistentheterogeneity",theideathatstragglersareidentifiableandtheir
+performancedeltaisconstant.However,inmodernmultitenantcloudenvironmentsandshared
+HPCclusters,stragglersareoften"stochastic."Anodemaybefastforseveralhundred
+iterationsandthenexperienceatransient"brownout"duetogarbagecollection,thermal
+throttling,orbackgroundsystemtasks.ExistingAll-Reduceframeworksare"brittle"tothese
+burstsoflatency,andasynchrony-basedPSmodelspayaconstantaccuracypenaltyfor
+stalenessevenduringperiodsofnetworkhealth.
+2.TradeoffInsufficiency:Accuracyvs.HardwareUtilization
+Acriticaltradeoffexistsbetweenthe"statisticalefficiency"ofsynchronousmethods(which
+requirefewertotalsamplestoconverge)andthe"hardwareefficiency"ofasynchronous
+methods(whichprocessmoresamplespersecond).Currentliteratureofferseither-orsolutions.
+Eventhe"Strategy-Switch"methodisauni-directionaltransitionthatdoesnotaccountforthe
+possibilitythatamodelmayneedtoreturntostrictsynchronizationifgradientvariancespikes.
+## Thereisalackofbi-directional,real-time"architecturalmorphing"thatcanadjustthe
+synchronizationprotocolontheflybasedonbothnetworktelemetryandthemathematical
+stabilityofthetrainingprocess.
+3.ScalabilityBottlenecks:TheBandwidth-MemoryConfluence
+WhileRingAll-Reduceis"bandwidth-optimal,"itisnot"memory-optimal"or"latency-optimal"at
+extremescales.AsmodelsizeSincreases,thememoryoverheadofmaintainingfullreplicas
+oneverynode(requiredforRAR)becomesprohibitive.Modelshardingtechniques(like
+ZeRO/DeepSpeed)mitigatethisbutintroducecomplexall-to-allcommunicationpatternsthatdo
+notfollowthesimplelogicalring,leadingtonetworkcongestionthattheRARalgorithmcannot
+address.Furthermore,asclustersgrowtothousandsofGPUs,theO(N)latencyofthering
+becomesadominantfactor,yetcurrentsystemslackamechanismtodynamicallyswitch
+betweenrings,trees,andmeshtopologiesbasedonmessagesize.
+
+ProposedHypothesis
+## Wehypothesizethatwithinasoftware-emulateddistributedenvironment,characterizedby
+variablenodeperformanceandnon-IID(IndependentandIdenticallyDistributed)data,ahybrid
+trainingframeworkcansignificantlyreduceoveralltrainingtime.Thisframeworkwilldynamically
+alternatebetweenaSynchronousAll-ReducemethodandanAsynchronousParameterServer
+architecture.
+## Themechanismforswitchingbetweenthesetwostateswillbedrivenbyreal-timeruntime
+communicationlatencyandgradientvariance,whichwillbemeasuredusingalightweight
+GradientDiversityIndex.Thecorestrategyistoutilizeasynchronousupdatestobypassdelays
+introducedbyunderperformingnodes(stragglers),whilerevertingtosynchronousupdates
+whengradientvariancespikes,therebyensuringmodelstability.Ultimately,thisadaptive
+approachisdesignedtominimizeTime-to-Convergence(TTC)whilemaintaininganaccuracy
+profilecomparabletofullysynchronoustraining.
+PerformanceMetrics
+## Toensureacomprehensiveevaluation,theproposedsystemwillbeassessedagainsta
+standardizedsetofbothefficiencyandmodelqualitymetrics.Thesemetricsareoutlinedbelow:
+
+ExperimentalSetup
+Theexperimentalphaseisstructuredtorigorouslytestthehybridframeworkundercontrolled,
+reproducibleconditions.
+1.SystemConfiguration
+Allexperimentswillbecontainedwithinasinglemachineutilizingacontainer-basedsimulation
+approach.Thisallowsforprecisecontroloverthenetworkenvironment.
+ComponentConfigurationDetails
+EnvironmentSinglehigh-performancelaptoporworkstation
+ClusterSize4to8Dockercontainers
+Backend(Synchronous)PyTorchDistributed(All-Reduce)
+Backend(Asynchronous)PyTorchRPC(ParameterServer)
+NetworkEmulationLinuxtc-netemforsimulatingnetworkconditions
+2.DatasetsandModels
+Toensurethefeasibilityofthesimulationwhileproducingmeaningful,scalableresults,we
+haveselectedstandardbenchmarkingcombinations.Thedatawillbedistributedacrossthe
+nodesinanon-IIDpartitiontoreflectreal-worlddataheterogeneity.
+CategorySelectedConfiguration
+DatasetsCIFAR-10(forinitialtesting),CIFAR-100(forfinalevaluation)
+
+ModelsResNet-18,MobileNetV2
+3.ExperimentalScenarios
+Theframework'sadaptabilitywillbechallengedacrossthreedistinctoperationalscenarios.
+## Eachscenarioisdesignedtoisolateandtestspecificbehaviorsofthehybridsystem.
+ScenarioDescriptionPrimaryGoal
+## Baseline
+(Homogeneous)
+## Idealconditionswithzero
+latencyandequallydistributed
+resources.
+## Toestablishabenchmark
+referenceaccuracy.
+ScenarioA(Persistent
+## Stragglers)
+## 25%ofthenetworknodesare
+subjectedtocontinuous,
+artificialslowdowns.
+## Totestthesystem'srobustness
+againstpermanentlyslow
+nodes.
+ScenarioB(Transient
+## Heterogeneity)
+## Random,unpredictablelatency
+spikesareintroducedacross
+thenetwork.
+## Toevaluatetheresponsiveness
+ofthedynamicswitching
+mechanism.
+4.ExecutionPlan
+## Thedevelopmentandtestinglifecyclewillbedividedintofourdistinctphases,ensuringa
+systematicprogressionfrombaselineestablishmenttofinalevaluation.
+PhaseDescription
+Phase1:BaselineExecutepuresynchronousandpureasynchronoustrainingruns
+togathercontroldata.
+
+## Phase2:
+## Implementation
+## Developandintegratethecorehybridswitchingframework.
+Phase3:OptimizationFine-tunetheoperationalthresholds(balancinglatencytriggers
+againstvariancelimits).
+Phase4:EvaluationConductcomprehensiveperformancecomparisonsacrossall
+definedexperimentalscenarios.
+ValidationCriteria
+## Uponcompletionoftheexecutionplan,theproposedhybridmethodologywillbedeemed
+successfuliftheexperimentaldatademonstratesthefollowingoutcomes:
+●ImprovedSpeed:AnoticeablylowerTime-to-Convergence(TTC)comparedtothe
+standardsynchronousbaseline.
+●ResourceEfficiency:Ameasurablereductioninsystemidletimecausedbystraggler
+nodes.
+●QualityRetention:Afinalvalidationaccuracythatremainscloselyalignedwiththe
+synchronousbaseline.
+●Stability:Successfullycontrolledgradientstalenesswithoutsufferingasignificantdrop
+inmodelperformance.
+## References
+1.“ScalingDistributedMachineLearningwiththeParameterServer,”USENIX.
+## Available:https://www.usenix.org/
+2.Ameya,“ParameterServerforDistributedMachineLearning,”Medium(Coinmonks).
+## Available:https://medium.com/
+3.“ScalableTrainingofMixture-of-ExpertsModelswithMegatronCore,”arXiv.
+## Available:https://arxiv.org/
+4.“AcceleratingDistributedSGDWithGroupHybridParallelism,”IEEEXplore.
+## Available:https://ieeexplore.ieee.org/
+5.“HighPerformanceParameterServersforEfficientDistributedDeepNeuralNetwork
+Training,”MLSys.
+## Available:https://mlsys.org/
+6.“GADGET:OnlineResourceOptimizationforSchedulingRing-All-ReduceLearning
+Jobs,”NSFPAR.
+## Available:https://par.nsf.gov/
+
+7.“EfficientAllReducewithStragglers,”arXiv.
+## Available:https://arxiv.org/
+8.“AcceleratingAllReducewithaPersistentStraggler,”arXiv.
+## Available:https://arxiv.org/
+9.“FasterDistributedDeepNetTraining:ComputationandCommunicationDecoupled
+## SGD,”USTC.
+## Available:https://faculty.ustc.edu.cn/
+10.“AcceleratingDistributedTrainingonParameterServerArchitectureWithPath-Aware
+Multicast,”IEEEXplore.
+## Available:https://ieeexplore.ieee.org/
+11.“AnalysisofDistributedTrainingSystemsandOptimizationAlgorithms,”AtlantisPress.
+## Available:https://www.atlantis-press.com/
+12.EdirGarciaLazo,“VisualIntuitiononRing-AllReduceforDistributedDeepLearning,”
+## Medium.
+## Available:https://medium.com/
+13.JaeDukSeo,“Horovod:FastandEasyDistributedDeepLearninginTensorFlow,”
+## Medium.
+## Available:https://medium.com/
+14.“TheLimitsandPotentialsofLocalSGDforDistributedHeterogeneousLearningwith
+IntermittentCommunication,”PMLR.
+## Available:https://proceedings.mlr.press/
+15.JeremyJordan,“TrainingExtremelyLargeNeuralNetworksAcrossThousandsof
+GPUs,”Blog.
+## Available:https://www.jeremyjordan.me/
+16.NADDOD,“In-DepthUnderstandingofDistributedTrainingCommunicationPrimitives,”
+## Medium.
+## Available:https://medium.com/
+17.“BlueConnect:DecomposingAll-ReduceforDeepLearningonHeterogeneousNetwork
+Hierarchy,”MLSys.
+## Available:https://mlsys.org/
+18.“ParameterServersandAllReduce–Introduction,”CourseNotes.
+## Available:https://xzhu0027.gitbook.io/
+19.“Strategy-Switch:FromAll-ReducetoParameterServerforFasterEfficientTraining,”
+ResearchGate.
+## Available:https://researchgate.net/
+20.“ParameterServervs.All-Reduce:DistributedTrainingArchitectureTradeoffs,”
+## Patsnap.
+## Available:https://eureka.patsnap.com/
