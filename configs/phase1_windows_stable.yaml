@@ -1,0 +1,33 @@
+# Windows low-resource stable profile for Phase 1.
+# Use this first on laptops that become unresponsive on epoch 1.
+
+dataset: "cifar10"
+data_root: "./data"
+
+model: "resnet18"
+
+# Keep the first run small and stable.
+epochs: 5
+batch_size: 32
+lr: 0.1
+momentum: 0.9
+weight_decay: 0.0005
+lr_milestones: [3, 4]
+lr_gamma: 0.1
+
+# Single-process first, then scale to DDP once stable.
+distributed: false
+backend: "gloo"
+use_cuda: false
+num_workers: 0
+
+# Important for Windows responsiveness.
+max_cpu_threads: 4
+log_interval_batches: 50
+
+log_dir: "./logs"
+checkpoint_dir: "./checkpoints"
+checkpoint_every: 5
+
+master_addr: "127.0.0.1"
+master_port: 29500
