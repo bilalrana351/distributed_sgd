@@ -140,23 +140,41 @@ After this run completes reliably, move back to `configs/phase1_config.yaml` and
 
 ---
 
-### 5.2 Multi-Process DDP – 2 Workers (torchrun, recommended)
+### 5.2 Multi-Process DDP – 2 Workers (safe profile, recommended first)
 
 ```powershell
-torchrun --nproc_per_node=2 src/sync_allreduce/train_ddp.py --config configs/phase1_config.yaml
+$env:USE_LIBUV="0"
+torchrun --nproc_per_node=2 src/sync_allreduce/train_ddp.py --config configs/phase1_ddp_world2_safe.yaml
 ```
 
 Output CSV: `logs/sync_resnet18_cifar10_world2.csv`
 
 ---
 
-### 5.3 Multi-Process DDP – 4 Workers (torchrun)
+### 5.3 Multi-Process DDP – 4 Workers (extra-conservative profile)
 
 ```powershell
-torchrun --nproc_per_node=4 src/sync_allreduce/train_ddp.py --config configs/phase1_config.yaml
+$env:USE_LIBUV="0"
+torchrun --nproc_per_node=4 src/sync_allreduce/train_ddp.py --config configs/phase1_ddp_world4_safe.yaml
 ```
 
 Output CSV: `logs/sync_resnet18_cifar10_world4.csv`
+
+---
+
+### 5.3.1 Scale-Up After Stable Runs
+
+If both commands above complete without freezing:
+
+- For 2-worker profile (`phase1_ddp_world2_safe.yaml`):
+  - Increase `batch_size` from `16 -> 24 -> 32`
+  - Increase `epochs` from `5 -> 10 -> 20`
+
+- For 4-worker profile (`phase1_ddp_world4_safe.yaml`):
+  - Increase `batch_size` from `8 -> 12 -> 16`
+  - Increase `epochs` from `3 -> 5 -> 10`
+
+If a run hangs, stop with `Ctrl + C` and step back to the previous stable values.
 
 ---
 
@@ -226,6 +244,7 @@ After running all experiments, you should have:
 | `ImportError` for tqdm/yaml | Run `pip install -r requirements.txt` again inside the activated venv |
 | Processes hang on Windows | Set `num_workers: 0` in config (already the default) |
 | `Set-ExecutionPolicy` error | Run PowerShell as Administrator; run the Set-ExecutionPolicy command |
+| `DistStoreError: use_libuv was requested...` | Run `\$env:USE_LIBUV=\"0\"` before `torchrun`, or use `python src/sync_allreduce/launcher.py --nproc 2 --config ...` |
 
 ---
 
