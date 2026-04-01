@@ -1,0 +1,64 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Phase 2 – Async Parameter Server  |  Windows low-resource safe profile
+#
+# Run command (from project root, venv activated):
+#   python src/async_ps/launcher.py --nworkers 2 --config configs/phase2_async_ps_safe.yaml
+#
+# Design choices:
+#   • 1 PS process + 2 worker processes  (comparable to Phase 1 world=2)
+#   • total_steps=500  → each worker does 500 local gradient-push steps
+#     (much shorter than Phase 1's 5-epoch run, but sufficient to measure
+#      staleness behaviour and compare throughput vs DDP baseline)
+#   • batch_size=32  → same as Phase 1 world=1 for fair per-worker comparison
+#   • param_pull_every=10 → workers refresh local params every 10 steps
+#   • max_cpu_threads=2  → caps per-process CPU threads (avoids laptop freeze)
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ── Dataset / model ────────────────────────────────────────────────────────────
+dataset:   "cifar10"
+data_root: "./data"
+model:     "resnet18"
+
+# ── Optimisation ──────────────────────────────────────────────────────────────
+lr:           0.01          # PS-side SGD learning rate.
+                            # Async PS applies one gradient per worker step without
+                            # any averaging, so the effective update rate is
+                            # num_workers × lr.  With 2 workers this gives an
+                            # effective lr of ~0.02, comparable to the per-step
+                            # contribution in DDP (lr=0.1 / world_size=2 = 0.05
+                            # per gradient before averaging).
+                            # Start at 0.01 (conservative); increase to 0.05 only
+                            # after confirming loss is stable across first 100 steps.
+weight_decay: 0.0005        # not used by PS directly (no weight-decay on PS SGD)
+                            # but kept here for reference / future extension
+seed: 42                    # base random seed; workers get seed + worker_id*1000
+
+# ── Training length ───────────────────────────────────────────────────────────
+total_steps: 500            # per-worker local gradient-push steps
+batch_size:  32             # per-worker mini-batch size
+
+# ── Async PS behaviour ────────────────────────────────────────────────────────
+param_pull_every: 10        # worker refreshes its local params from PS every k steps
+                            # lower  → less staleness, more lock contention
+                            # higher → more staleness, better worker throughput
+grad_queue_maxsize: 200     # max items in the gradient queue (blocks workers if full)
+
+# ── Validation ────────────────────────────────────────────────────────────────
+val_interval_steps: 100     # worker-0 runs validation every k local steps
+val_num_batches: 30         # max val batches per pass (30 × batch=64 = 1920 samples,
+                            # ~20-30s on CPU).  Remove or set to null for full val.
+                            # Full CIFAR-10 val = 156 batches ≈ 2 min on this CPU.
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+log_interval_steps: 50      # console + CSV log interval for workers
+ps_poll_timeout:    0.5     # PS blocks this many seconds waiting for a gradient
+                            # before looping back to check workers_done
+
+# ── Resource constraints (important for Windows laptops) ─────────────────────
+max_cpu_threads:       2    # torch.set_num_threads per process
+num_workers_dataloader: 0   # DataLoader workers (0 = main thread only, avoids
+                            # extra processes on an already-busy CPU)
+
+# ── Output paths ──────────────────────────────────────────────────────────────
+log_dir:        "./logs"
+checkpoint_dir: "./checkpoints"
