@@ -1,0 +1,46 @@
+# Phase 2 – Async Parameter Server (FINAL comparison run)
+#
+# Goal:
+#   - produce a trustworthy FINAL validation accuracy (full CIFAR-10 val set)
+#   - keep everything stable on CPU-only Windows
+#
+# Run:
+#   python src/async_ps/launcher.py --nworkers 2 --config configs/phase2_async_ps_final.yaml
+#
+
+# ── Dataset / model ───────────────────────────────────────────────────────────
+dataset:   "cifar10"
+data_root: "./data"
+model:     "resnet18"
+
+# ── Optimisation (PS-side SGD) ────────────────────────────────────────────────
+# Note: Async PS applies one update per worker-step without averaging,
+# so effective update rate is ~num_workers × lr.
+lr: 0.01
+seed: 42
+
+# ── Training length (per worker) ──────────────────────────────────────────────
+# Increase this if you want closer-to-DDP accuracy.
+total_steps: 2000
+batch_size: 32
+
+# ── Async PS behaviour ────────────────────────────────────────────────────────
+# Pull more frequently to reduce practical staleness in model space.
+param_pull_every: 5
+grad_queue_maxsize: 200
+
+# ── Validation ────────────────────────────────────────────────────────────────
+# Do ONE full validation at the end only (saves a lot of time on CPU).
+val_interval_steps: 2000
+val_num_batches: null
+
+# ── Logging / runtime safety ─────────────────────────────────────────────────
+log_interval_steps: 100
+ps_poll_timeout: 0.5
+
+max_cpu_threads: 2
+num_workers_dataloader: 0
+
+log_dir: "./logs"
+checkpoint_dir: "./checkpoints"
+
