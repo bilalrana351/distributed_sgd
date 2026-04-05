@@ -2,100 +2,70 @@
 
 ### 1. Objectives
 
-- Perform **final comparison** between:
-  - Pure synchronous All-Reduce
-  - Pure asynchronous Parameter Server
-  - Hybrid switching method
-- Evaluate against course requirements:
-  - Scalability
-  - Failure/heterogeneity handling
-  - Sensitivity analysis
-  - Measurable improvement
-- Prepare material for final presentation and report.
+- Perform the **final comparison** between:
+  - Pure synchronous All-Reduce (sync baseline)
+  - Pure asynchronous Parameter Server (async baseline)
+  - **Hybrid** switching (your contribution)
+- Present results in a way that matches the **submitted proposal**: **container-based** distributed nodes, **network scenarios**, and **measurable** gains (e.g. time-to-target accuracy, final accuracy, throughput, switching behavior).
+- Prepare **report + slides** for your professor.
 
 ### 2. Prerequisites
 
-- All previous phases completed.
-- Logs from repeated runs available and organized.
+- **Phase 4 completed** in the sense that your **primary experimental evidence** comes from **Docker multi-container runs** (4–8 containers as feasible) under the defined scenarios.  
+- **Phases 1–3 logs** remain valid as **development / sanity-check** evidence (algorithm correctness, hybrid switch demonstration on host), cited explicitly as such in the write-up so the narrative is honest: *implementation proven on host; evaluation aligned with proposal in containers.*
 
-### 3. Evaluation Dimensions
+### 3. Does Phase 5 “use Docker”?
 
-- **Time-to-Convergence (TTC)**:
-  - Time to reach a fixed target accuracy (e.g. 70% on CIFAR-10).
-- **Final Validation Accuracy**:
-  - After fixed number of epochs/steps.
-- **Throughput**:
-  - Samples per second.
-- **Resource Utilization / Idle Time**:
-  - Approximate waiting time in sync vs async vs hybrid.
-- **Stability of Training**:
-  - Loss/accuracy curves (no divergence).
-- **Switching Behavior (Hybrid)**:
-  - Number of switches.
-  - Situations in which switching occurs.
+**Phase 5 does not introduce new Docker work.** Phase 5 **consumes** the artifacts from Phase 4:
 
-### 4. Analysis Steps
+- Aggregated metrics from container runs  
+- Plots and tables  
+- Optional appendix: compose file + image tag + command line to reproduce  
 
-#### Step 1 – Aggregate Metrics
+If Phase 4 is done correctly, **Phase 5 is mostly analysis and writing** — but your **report’s Experimental Setup section must describe the Docker topology** (number of containers, network, how stragglers/latency were applied) because that is what your proposal promised.
 
-- For each configuration and scenario:
-  - Compute:
-    - mean and std of TTC over 3 runs
-    - mean and std of final accuracy
-    - mean throughput
-    - average/max staleness (async/hybrid)
-- Store results in tables (CSV / LaTeX / Markdown).
+### 4. Evaluation dimensions
+
+- **Time-to-Convergence (TTC):** time to reach a fixed validation accuracy (e.g. 70% on CIFAR-10), or a proxy if runs are shorter.
+- **Final validation accuracy** after a fixed budget (epochs or steps).
+- **Throughput** (images/sec or samples/sec) **per configuration**, noting container overhead vs bare-metal Phase 1–3 if compared.
+- **Resource / straggler impact:** idle time or wall-clock gap in sync vs async vs hybrid under **Scenario A/B** (from Phase 4).
+- **Stability:** loss/accuracy curves; no divergence.
+- **Hybrid-specific:** number of switches, modes over time, signals at switch (from `*_switches.csv` or equivalent).
+
+### 5. Analysis steps
+
+#### Step 1 – Aggregate metrics
+
+Per scenario and method (sync / async / hybrid):
+
+- Mean ± std over seeds for TTC, final accuracy, throughput, switch count, mean/max staleness.
 
 #### Step 2 – Plots
 
-- Plot per scenario:
-  - Accuracy vs time for sync, async, hybrid.
-  - TTC bar charts with error bars.
-  - For hybrid:
-    - overlay mode (sync/async) on accuracy/time plot (e.g. shaded regions).
-- Optional:
-  - latency/variance metrics around switch events.
+- Accuracy vs wall-clock for all three methods per scenario.
+- TTC bar charts with error bars.
+- Hybrid: overlay **mode** (sync/async) on the time axis (shaded regions), using logs.
 
-#### Step 3 – Comparative Discussion
+#### Step 3 – Discussion per scenario
 
-- For each scenario:
-  - **Homogeneous**:
-    - Does hybrid perform similarly to sync?
-    - Is there any unnecessary switching?
-  - **Persistent Stragglers**:
-    - Does hybrid reduce TTC vs sync?
-    - How much accuracy gap vs sync (if any)?
-  - **Transient Heterogeneity**:
-    - Does hybrid respond quickly enough?
-    - Is switching pattern intuitive given latency spikes?
+- **Homogeneous:** Does hybrid track sync? Unnecessary switching?
+- **Persistent stragglers:** Does hybrid improve TTC vs sync? Accuracy cost vs async-only?
+- **Transient heterogeneity:** Does the controller react on sensible timescales?
 
-#### Step 4 – Trade-off and C-6 Justification
+#### Step 4 – Novelty and limitations
 
-- Explicitly discuss:
-  - Where hybrid is better (TTC, idling, robustness).
-  - Where hybrid might be worse (slightly more complexity, overhead, occasional accuracy drop).
-- Argue novelty:
-  - Bi-directional, real-time switching guided by live telemetry (latency + gradient variance) in a single framework.
-  - Experimental evidence that it improves TTC with bounded impact on accuracy under realistic heterogeneity.
+- State clearly: **bi-directional** hybrid policy, **live** signals, **containerized** evaluation matching the proposal.
+- Limitations: CPU-only laptop, fewer than 8 containers if applicable, subset validation during debugging, etc.
 
-#### Step 5 – Final Report and Presentation
+#### Step 5 – Final report and presentation
 
-- Integrate results into final project report sections:
-  - Experimental setup
-  - Workload modeling
-  - Scalability results
-  - Failure scenario evaluation
-  - Sensitivity analysis
-  - Measurable improvement
-  - Novelty justification
-- Prepare 10–15 slide deck:
-  - Problem → Gap → Design → Implementation → Results → Lessons.
+- Problem → gap → design → **Docker experimental setup** → results → conclusion.
+- 10–15 slides, with one slide on **reproducibility** (Docker image + compose).
 
-### 5. Deliverables for Phase 5
+### 6. Deliverables for Phase 5
 
-- Final aggregated tables and plots.
-- Final written analysis (report sections).
+- Final tables and plots (from **Phase 4** runs as primary).
+- Written report sections integrated with course requirements.
 - Presentation slides.
-- Clear statement of project conclusion:
-  - When and how the hybrid approach provides value.
-
+- Clear conclusion: **when** hybrid helps and **how** it was validated in the **proposed** environment.

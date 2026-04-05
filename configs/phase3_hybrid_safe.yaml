@@ -43,6 +43,9 @@ num_workers_dataloader: 0
 log_dir: "./logs"
 checkpoint_dir: "./checkpoints"
 
+# Optional: set to e.g. "run_20260404" so logs/checkpoint names stay unique per run
+run_id: ""
+
 # ── Hybrid controller ───────────────────────────────────────────────────────
 controller:
   start_mode: "sync"         # begin in sync (safer baseline)

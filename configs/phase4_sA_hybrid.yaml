@@ -1,0 +1,69 @@
+# Phase 4 – Scenario A (Persistent Straggler) – Hybrid (tuned)
+#
+# Worker 1 delayed for the ENTIRE run. Controller ENABLED.
+# Expected result:
+#   - Starts in sync mode.
+#   - Controller detects straggler via worker_time_var > straggler_var_high.
+#   - Switches to async after cooldown + decision_window triggers.
+#   - Stays in async for the rest of the run (straggler never recovers).
+#   - Wall-clock time should be significantly better than sA_sync.
+#   - Final accuracy close to sA_async (one switch, minimal staleness build-up
+#     during the short sync phase).
+#
+# Run:
+#   python src/hybrid/launcher.py --nworkers 2 --config configs/phase4_sA_hybrid.yaml
+
+dataset:   "cifar10"
+data_root: "./data"
+model:     "resnet18"
+
+run_id:      "p4_sA_hybrid"
+scenario_id: "sA_persistent_straggler"
+
+lr:    0.01
+seed:  42
+
+total_steps: 800
+batch_size:  32
+
+mode_lock: "none"   # controller enabled
+
+param_pull_every:   5
+grad_queue_maxsize: 200
+
+val_interval_steps: 200
+val_num_batches:    30
+
+log_interval_steps: 50
+ps_poll_timeout:    0.5
+sync_poll_interval: 0.005
+
+max_cpu_threads:        2
+num_workers_dataloader: 0
+
+log_dir:        "./logs"
+checkpoint_dir: "./checkpoints"
+
+# Tuned thresholds for Scenario A:
+# - Lower straggler_var_high (detect straggler quickly)
+# - Higher grad_var_low (allow switch even if gradients are somewhat diverse)
+# - grad_var_high/straggler_var_low for ASYNC→SYNC unlikely to fire (persistent straggler never stops)
+controller:
+  start_mode:    "sync"
+  eval_interval: 40
+  cooldown_steps: 120
+  decision_window: 2
+  ema_alpha:    0.08
+  window_size:  15
+  straggler_var_high:   0.18
+  grad_var_low:         0.85
+  grad_var_high:        0.90
+  loss_trend_threshold: 0.06
+  straggler_var_low:    0.08   # very low — unlikely to trigger back-switch
+
+straggler:
+  enabled: true
+  worker_id: 1
+  delay_seconds: 1.5
+  start_step: 0
+  end_step: 800

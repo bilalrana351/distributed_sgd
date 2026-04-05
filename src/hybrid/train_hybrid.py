@@ -79,8 +79,10 @@ HYBRID_PS_LOG_FIELDS: List[str] = [
     "max_staleness",
     "min_staleness",
     "updates_in_interval",
+    "throughput_img_per_sec",
     "num_workers",
     "batch_size",
+    "scenario_id",
 ]
 
 HYBRID_STALENESS_LOG_FIELDS: List[str] = [
@@ -168,15 +170,27 @@ def _run_ps(
     device = torch.device("cpu")
     lr = float(config.get("lr", 0.05))
     log_dir = config.get("log_dir", "./logs")
-    run_tag = (
-        f"{config['model']}_{config['dataset']}_nw{num_workers}"
-    )
+    run_tag = f"{config['model']}_{config['dataset']}_nw{num_workers}"
+    _rid = str(config.get("run_id", "")).strip()
+    if _rid:
+        run_tag = f"{run_tag}_{_rid}"
     ckpt_dir = config.get("checkpoint_dir", "./checkpoints")
     log_interval = int(config.get("log_interval_steps", 50))
     poll_timeout = float(config.get("ps_poll_timeout", 0.5))
+    scenario_id = str(config.get("scenario_id", "")).strip()
+    batch_size = int(config.get("batch_size", 32))
+
+    # mode_lock: "none" (default) | "sync" | "async"
+    # When locked the controller is disabled and the mode never changes.
+    mode_lock = str(config.get("mode_lock", "none")).strip().lower()
+    controller_enabled = mode_lock == "none"
 
     # ── Controller + metrics ─────────────────────────────────────────────
     ctrl_cfg = config.get("controller", {})
+    # If mode_lock overrides start_mode, patch ctrl_cfg before constructing
+    if mode_lock in ("sync", "async"):
+        ctrl_cfg = dict(ctrl_cfg)
+        ctrl_cfg["start_mode"] = mode_lock
     controller = ModeController(ctrl_cfg)
     metrics = MetricsCollector(
         num_workers=num_workers,
@@ -212,6 +226,8 @@ def _run_ps(
     global_step = 0
     start_time = time.perf_counter()
     last_log_step = 0
+    last_throughput_step = 0
+    last_throughput_time = start_time
 
     # Sync-mode gradient buffer: worker_id → full payload
     sync_buffer: Dict[int, Tuple] = {}
@@ -225,6 +241,15 @@ def _run_ps(
                 val_result: Dict = val_queue.get_nowait()
                 elapsed = time.perf_counter() - start_time
                 avg_s, max_s, min_s, cnt = tracker.drain()
+                # Throughput: images/sec since last throughput checkpoint
+                tp_steps = global_step - last_throughput_step
+                tp_elapsed = elapsed - (last_throughput_time - start_time)
+                throughput = (
+                    round(tp_steps * batch_size / tp_elapsed, 2)
+                    if tp_elapsed > 0 else 0.0
+                )
+                last_throughput_step = global_step
+                last_throughput_time = time.perf_counter()
                 ps_csv.log({
                     "global_step": global_step,
                     "elapsed_time": round(elapsed, 2),
@@ -235,14 +260,17 @@ def _run_ps(
                     "max_staleness": max_s,
                     "min_staleness": min_s,
                     "updates_in_interval": cnt,
+                    "throughput_img_per_sec": throughput,
                     "num_workers": num_workers,
-                    "batch_size": int(config.get("batch_size", 32)),
+                    "batch_size": batch_size,
+                    "scenario_id": scenario_id,
                 })
                 logger.info(
                     f"[PS] step={global_step} | "
                     f"mode={MODE_NAMES[current_mode]} | "
                     f"val_loss={val_result['val_loss']:.4f} | "
                     f"val_acc@1={val_result['val_acc1']:.2f}% | "
+                    f"throughput={throughput:.1f} img/s | "
                     f"avg_staleness={avg_s:.2f} | "
                     f"elapsed={elapsed:.1f}s"
                 )
@@ -339,13 +367,14 @@ def _run_ps(
             )
             last_log_step = global_step
 
-        # ── Controller evaluation ────────────────────────────────────────
+        # ── Controller evaluation (skipped when mode_lock is set) ────────
         if (
-            global_step > 0
+            controller_enabled
+            and global_step > 0
             and global_step % controller.eval_interval == 0
         ):
             signals = metrics.get_signals()
-            new_mode, switched = controller.evaluate(signals, global_step)
+            new_mode, switched, reason = controller.evaluate(signals, global_step)
 
             if switched:
                 old_name = MODE_NAMES[
@@ -354,13 +383,14 @@ def _run_ps(
                 new_name = MODE_NAMES[new_mode]
                 logger.info(
                     f"[PS] *** MODE SWITCH: {old_name} → {new_name} "
-                    f"at step {global_step} ***"
+                    f"at step {global_step} | reason={reason} ***"
                 )
                 switch_csv.log({
                     "global_step": global_step,
                     "elapsed_time": round(elapsed, 2),
                     "old_mode": old_name,
                     "new_mode": new_name,
+                    "trigger_reason": reason,
                     **signals,
                 })
 
@@ -385,6 +415,14 @@ def _run_ps(
             val_result = val_queue.get_nowait()
             elapsed = time.perf_counter() - start_time
             avg_s, max_s, min_s, cnt = tracker.drain()
+            tp_steps = global_step - last_throughput_step
+            tp_elapsed = elapsed - (last_throughput_time - start_time)
+            throughput = (
+                round(tp_steps * batch_size / tp_elapsed, 2)
+                if tp_elapsed > 0 else 0.0
+            )
+            last_throughput_step = global_step
+            last_throughput_time = time.perf_counter()
             ps_csv.log({
                 "global_step": global_step,
                 "elapsed_time": round(elapsed, 2),
@@ -395,8 +433,10 @@ def _run_ps(
                 "max_staleness": max_s,
                 "min_staleness": min_s,
                 "updates_in_interval": cnt,
+                "throughput_img_per_sec": throughput,
                 "num_workers": num_workers,
-                "batch_size": int(config.get("batch_size", 32)),
+                "batch_size": batch_size,
+                "scenario_id": scenario_id,
             })
     except Exception:
         pass
@@ -516,6 +556,9 @@ def _run_worker(
     val_max_batches = config.get("val_num_batches", None)
     log_dir = config.get("log_dir", "./logs")
     run_tag = f"{config['model']}_{config['dataset']}_nw{num_workers}"
+    _rid = str(config.get("run_id", "")).strip()
+    if _rid:
+        run_tag = f"{run_tag}_{_rid}"
     sync_poll_interval = float(config.get("sync_poll_interval", 0.005))
 
     # ── Straggler simulation (Phase 3 testing) ───────────────────────────

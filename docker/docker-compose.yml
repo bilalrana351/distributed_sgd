@@ -1,0 +1,83 @@
+# Phase 4 – Docker Compose for multi-service experiment execution
+#
+# Architecture
+# ────────────────────────────────────────────────────────────────────────────
+# All scenario experiments run INSIDE a single container using the existing
+# torch.multiprocessing shared-memory approach (1 PS + N worker processes).
+# This gives:
+#   - Full Linux environment (reproducible, archivable)
+#   - Honest "containerized node" story for the report
+#   - iproute2 available inside the container if network emulation is desired
+#
+# Usage
+# ────────────────────────────────────────────────────────────────────────────
+#
+# 1. Build the image:
+#      docker compose build
+#
+# 2. Run Scenario A Hybrid (the key Phase 4 experiment):
+#      docker compose run --rm scenario_runner \
+#        python src/hybrid/launcher.py --nworkers 2 \
+#              --config configs/phase4_sA_hybrid.yaml
+#
+# 3. Run all 9 scenarios sequentially:
+#      docker compose run --rm scenario_runner \
+#        python experiments/run_scenarios.py
+#
+# 4. Run the threshold sweep:
+#      docker compose run --rm scenario_runner \
+#        python experiments/threshold_sweep.py
+#
+# 5. Analyse results after runs complete:
+#      docker compose run --rm scenario_runner \
+#        python experiments/analyze_results.py \
+#               --output docs/phase4_results_tables.md
+#
+# Volumes
+# ────────────────────────────────────────────────────────────────────────────
+#   ./data/          → /workspace/data         (CIFAR-10 dataset, read-only)
+#   ./logs/          → /workspace/logs         (experiment CSVs, read-write)
+#   ./checkpoints/   → /workspace/checkpoints  (model checkpoints, read-write)
+#
+# These bind-mounts mean logs written inside the container are immediately
+# visible on the host and vice-versa.
+
+version: "3.9"
+
+services:
+
+  # ── Primary experiment runner ──────────────────────────────────────────────
+  scenario_runner:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: pdc-hybrid:latest
+    container_name: pdc_scenario_runner
+
+    # Bind-mount host directories so results persist after the container exits
+    volumes:
+      - ../data:/workspace/data
+      - ../logs:/workspace/logs
+      - ../checkpoints:/workspace/checkpoints
+
+    # Reasonable resource cap for a laptop — adjust as needed
+    cpus: "4"
+    mem_limit: "6g"
+
+    # Override ENTRYPOINT to use shell so we can chain commands
+    entrypoint: ["python"]
+    command: ["src/hybrid/launcher.py", "--help"]
+
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  # ── Analysis-only runner (does not need write to checkpoints) ─────────────
+  analyzer:
+    image: pdc-hybrid:latest
+    container_name: pdc_analyzer
+    volumes:
+      - ../logs:/workspace/logs
+    entrypoint: ["python"]
+    command: ["experiments/analyze_results.py", "--log-dir", "./logs"]
+    environment:
+      - PYTHONUNBUFFERED=1
