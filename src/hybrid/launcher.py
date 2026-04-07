@@ -71,17 +71,18 @@ def launch(config: dict, nworkers: int) -> None:
         f"start_mode: {start_mode}"
     )
 
-    # ── Shared synchronisation primitives ────────────────────────────────
-    grad_queue = mp.Queue(
+    # ── Shared synchronisation primitives (single spawn context) ────────
+    ctx = mp.get_context("spawn")
+    grad_queue = ctx.Queue(
         maxsize=int(config.get("grad_queue_maxsize", 200))
     )
-    val_queue = mp.Queue(maxsize=64)
+    val_queue = ctx.Queue(maxsize=64)
 
-    param_lock = std_mp.Lock()
-    workers_done = std_mp.Value("i", 0)
-    workers_done_lock = std_mp.Lock()
-    mode_flag = std_mp.Value("i", 0)
-    sync_round = std_mp.Value("i", 0)
+    param_lock = ctx.Lock()
+    workers_done = ctx.Value("i", 0)
+    workers_done_lock = ctx.Lock()
+    mode_flag = ctx.Value("i", 0)
+    sync_round = ctx.Value("i", 0)
 
     print(
         f"[launcher] Spawning {world_size} processes "
@@ -139,6 +140,7 @@ def _parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     std_mp.freeze_support()
+    mp.set_start_method("spawn", force=True)
 
     args = _parse_args()
     with open(args.config, "r") as fh:
