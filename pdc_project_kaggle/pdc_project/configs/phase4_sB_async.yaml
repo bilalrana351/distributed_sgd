@@ -1,0 +1,61 @@
+# Phase 4 – Scenario B (Transient Straggler) – Pure Async Baseline
+#
+# Worker 1 delayed steps 100–500, then recovers.
+# Controller disabled (mode_lock=async).
+# Expected result: fast throughout but accumulates staleness unnecessarily
+# after step 500 when sync would be more efficient. Shows async's limitation:
+# cannot take advantage of restored homogeneity.
+#
+# Run:
+#   python src/hybrid/launcher.py --nworkers 2 --config configs/phase4_sB_async.yaml
+
+dataset:   "cifar10"
+data_root: "./data"
+model:     "resnet18"
+
+run_id:      "p4_sB_async"
+scenario_id: "sB_transient_straggler"
+
+lr:    0.01
+seed:  42
+
+total_steps: 900
+batch_size:  32
+
+mode_lock: "async"
+
+param_pull_every:   5
+grad_queue_maxsize: 200
+
+val_interval_steps: 225
+val_num_batches:    30
+
+log_interval_steps: 50
+ps_poll_timeout:    0.5
+sync_poll_interval: 0.005
+
+max_cpu_threads:        2
+num_workers_dataloader: 0
+
+log_dir:        "./logs"
+checkpoint_dir: "./checkpoints"
+
+controller:
+  start_mode:    "async"
+  eval_interval: 40
+  cooldown_steps: 150
+  decision_window: 2
+  ema_alpha:    0.08
+  window_size:  15
+  straggler_var_high:   0.20
+  grad_var_low:         0.80
+  grad_var_high:        0.90
+  loss_trend_threshold: 0.06
+  straggler_var_low:    0.12
+
+straggler:
+  enabled: true
+  worker_id: 1
+  delay_seconds: 1.5
+  start_step: 100
+  end_step: 500

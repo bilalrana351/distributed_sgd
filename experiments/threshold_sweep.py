@@ -4,7 +4,7 @@ Phase 4 – Controller threshold sweep.
 Performs a coarse grid search over the controller's key thresholds using
 Scenario A (persistent straggler) as the test bed.  Each combination is
 run with a short step budget (total_steps from the base config) so all
-sweep points complete quickly.
+sweep points complete quickly.  Grid size (default): 3×4×2 = 24 runs.
 
 Metrics collected per sweep point
 ──────────────────────────────────
@@ -59,7 +59,8 @@ if _PROJECT_ROOT not in sys.path:
 
 SWEEP_GRID: Dict[str, List] = {
     "straggler_var_high": [0.12, 0.18, 0.25],
-    "grad_var_low":       [0.70, 0.85],
+    # Include ≥0.95 so sweep can find configs that actually switch (grad gate was blocking at 0.85)
+    "grad_var_low":       [0.70, 0.85, 0.95, 1.0],
     "cooldown_steps":     [100, 150],
 }
 

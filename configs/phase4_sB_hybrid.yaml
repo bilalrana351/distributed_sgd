@@ -52,11 +52,11 @@ log_dir:        "./logs"
 checkpoint_dir: "./checkpoints"
 
 # Tuned thresholds for Scenario B (bi-directional):
-# - straggler_var_high: detect straggler early but not too sensitive
-# - straggler_var_low:  detect when straggler resolves (workers uniform again)
-#   Must be well below straggler_var_high to avoid oscillation.
-# - cooldown_steps: 120 — short enough to react to transient events
-#   but long enough to avoid back-and-forth thrashing
+# - straggler_var_high / grad_var_low: same rationale as sA_hybrid — grad gate at
+#   0.85 blocked SYNC→ASYNC in practice; 1.0 lets straggler signal dominate.
+# - straggler_var_low: detect when straggler resolves (workers uniform again);
+#   must stay well below straggler_var_high.
+# - cooldown_steps: balance responsiveness vs oscillation
 controller:
   start_mode:    "sync"
   eval_interval: 40
@@ -64,8 +64,8 @@ controller:
   decision_window: 2
   ema_alpha:    0.08
   window_size:  15
-  straggler_var_high:   0.18   # SYNC→ASYNC: straggler detected
-  grad_var_low:         0.85
+  straggler_var_high:   0.06   # SYNC→ASYNC (align with sA: EMA often stays under 0.15)
+  grad_var_low:         1.0
   grad_var_high:        0.90   # ASYNC→SYNC: gradient instability
   loss_trend_threshold: 0.06
   straggler_var_low:    0.12   # ASYNC→SYNC: workers uniform again

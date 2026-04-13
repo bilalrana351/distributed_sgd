@@ -1,0 +1,74 @@
+# Phase 3 – Hybrid Sync/Async Switching (conservative first run)
+#
+# Goal:
+#   - verify hybrid PS loop runs end-to-end without crash
+#   - verify controller evaluates signals and logs them correctly
+#   - verify mode switching works when straggler simulation is enabled
+#
+# Run (no straggler — should stay in start_mode throughout):
+#   python src/hybrid/launcher.py --nworkers 2 --config configs/phase3_hybrid_safe.yaml
+#
+# Run (with straggler — should trigger at least one switch):
+#   Edit "straggler.enabled: true" below, then run the same command.
+
+# ── Dataset / model ──────────────────────────────────────────────────────────
+dataset:   "cifar10"
+data_root: "./data"
+model:     "resnet18"
+
+# ── Optimisation (PS-side SGD) ───────────────────────────────────────────────
+lr: 0.01
+seed: 42
+
+# ── Training length (per worker) ─────────────────────────────────────────────
+total_steps: 1500
+batch_size: 32
+
+# ── PS behaviour ─────────────────────────────────────────────────────────────
+param_pull_every: 5
+grad_queue_maxsize: 200
+
+# ── Validation ───────────────────────────────────────────────────────────────
+val_interval_steps: 500
+val_num_batches: 30          # quick subset validation (~20 s)
+
+# ── Logging / runtime safety ────────────────────────────────────────────────
+log_interval_steps: 50
+ps_poll_timeout: 0.5
+sync_poll_interval: 0.005    # worker poll interval while waiting for sync round
+
+max_cpu_threads: 2
+num_workers_dataloader: 0
+
+log_dir: "./logs"
+checkpoint_dir: "./checkpoints"
+
+# Optional: set to e.g. "run_20260404" so logs/checkpoint names stay unique per run
+run_id: ""
+
+# ── Hybrid controller ───────────────────────────────────────────────────────
+controller:
+  start_mode: "sync"         # begin in sync (safer baseline)
+  eval_interval: 50          # evaluate mode switch every 50 global steps
+  cooldown_steps: 200        # stay in mode for ≥200 steps after any switch
+  decision_window: 3         # need 3 consecutive triggers to switch
+  ema_alpha: 0.05            # EMA smoothing factor for signals
+  window_size: 20            # rolling window for per-worker stats
+
+  # SYNC → ASYNC thresholds
+  straggler_var_high: 0.25   # relative std of worker step times
+  grad_var_low: 0.5          # gradient norm variance must be below this
+
+  # ASYNC → SYNC thresholds
+  grad_var_high: 1.0         # gradient norm variance above this → sync
+  loss_trend_threshold: 0.05 # EMA loss trend above this → sync
+
+# ── Straggler simulation (for testing mode switching) ───────────────────────
+# Enable to inject artificial delay into one worker, forcing the controller
+# to detect a straggler and switch from SYNC to ASYNC.
+straggler:
+  enabled: false
+  worker_id: 1               # which worker to slow down (0-indexed)
+  delay_seconds: 1.0         # extra sleep per step (seconds)
+  start_step: 300            # start straggling at this local step
+  end_step: 900              # stop straggling (transient scenario)

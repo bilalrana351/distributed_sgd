@@ -1,0 +1,78 @@
+# Phase 4 – Scenario B (Transient Straggler) – Hybrid (tuned)
+#
+# Worker 1 delayed steps 100–500, then recovers (transient heterogeneity).
+# Controller ENABLED.
+#
+# Expected bi-directional behaviour:
+#   Phase A (steps   0–100): SYNC   — homogeneous, no trigger.
+#   Phase B (steps 100–~250): SYNC  — straggler starts; controller waits
+#                                     for cooldown + decision_window.
+#   Switch 1 (~step 250):    SYNC → ASYNC  (straggler_detected)
+#   Phase C (steps ~250–500): ASYNC — straggler active, async avoids wait.
+#   Phase D (step 500): straggler stops; worker_time_var falls.
+#   Switch 2 (~step 650):    ASYNC → SYNC  (straggler_resolved)
+#   Phase E (steps ~650–900): SYNC — homogeneous again, best convergence.
+#
+# This is the key Phase 4 result: full bi-directional cycle demonstrating
+# adaptive benefit over both pure-sync (slow during straggler) and
+# pure-async (wasteful staleness after recovery).
+#
+# Run:
+#   python src/hybrid/launcher.py --nworkers 2 --config configs/phase4_sB_hybrid.yaml
+
+dataset:   "cifar10"
+data_root: "./data"
+model:     "resnet18"
+
+run_id:      "p4_sB_hybrid"
+scenario_id: "sB_transient_straggler"
+
+lr:    0.01
+seed:  42
+
+total_steps: 900
+batch_size:  32
+
+mode_lock: "none"   # controller enabled
+
+param_pull_every:   5
+grad_queue_maxsize: 200
+
+val_interval_steps: 225
+val_num_batches:    30
+
+log_interval_steps: 50
+ps_poll_timeout:    0.5
+sync_poll_interval: 0.005
+
+max_cpu_threads:        2
+num_workers_dataloader: 0
+
+log_dir:        "./logs"
+checkpoint_dir: "./checkpoints"
+
+# Tuned thresholds for Scenario B (bi-directional):
+# - straggler_var_high / grad_var_low: same rationale as sA_hybrid — grad gate at
+#   0.85 blocked SYNC→ASYNC in practice; 1.0 lets straggler signal dominate.
+# - straggler_var_low: detect when straggler resolves (workers uniform again);
+#   must stay well below straggler_var_high.
+# - cooldown_steps: balance responsiveness vs oscillation
+controller:
+  start_mode:    "sync"
+  eval_interval: 40
+  cooldown_steps: 120
+  decision_window: 2
+  ema_alpha:    0.08
+  window_size:  15
+  straggler_var_high:   0.06   # SYNC→ASYNC (align with sA: EMA often stays under 0.15)
+  grad_var_low:         1.0
+  grad_var_high:        0.90   # ASYNC→SYNC: gradient instability
+  loss_trend_threshold: 0.06
+  straggler_var_low:    0.12   # ASYNC→SYNC: workers uniform again
+
+straggler:
+  enabled: true
+  worker_id: 1
+  delay_seconds: 1.5
+  start_step: 100
+  end_step: 500

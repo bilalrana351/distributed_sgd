@@ -1,0 +1,38 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 1 – Synchronous All-Reduce (DDP) Baseline Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Dataset ──────────────────────────────────────────────────────────────────
+dataset:    "cifar10"       # cifar10 | cifar100
+data_root:  "./data"        # where CIFAR files are downloaded (auto-created)
+
+# ── Model ────────────────────────────────────────────────────────────────────
+model:      "resnet18"      # resnet18 | mobilenet_v2
+
+# ── Training hyperparameters ─────────────────────────────────────────────────
+epochs:       20            # set to 5 for a quick smoke test
+batch_size:   128           # per-worker batch size
+              #   effective global batch = batch_size × world_size
+lr:           0.1
+momentum:     0.9
+weight_decay: 0.0005
+lr_milestones: [10, 15]     # epochs at which LR is multiplied by lr_gamma
+lr_gamma:     0.1
+
+# ── System / distributed ─────────────────────────────────────────────────────
+distributed:  true          # set false for single-process debug run
+backend:      "gloo"        # gloo  → CPU or Windows GPU
+              #             # nccl  → Linux with CUDA (faster)
+use_cuda:     false         # set true if an NVIDIA GPU is available
+num_workers:  0             # DataLoader worker threads
+              #   0 = load in main process (safest on Windows)
+              #   increase to 2-4 on Linux if I/O is a bottleneck
+
+# ── Logging & checkpoints ────────────────────────────────────────────────────
+log_dir:           "./logs"
+checkpoint_dir:    "./checkpoints"
+checkpoint_every:  5        # save a checkpoint every N epochs
+
+# ── Rendezvous (single-machine) ───────────────────────────────────────────────
+master_addr:  "127.0.0.1"
+master_port:  29500

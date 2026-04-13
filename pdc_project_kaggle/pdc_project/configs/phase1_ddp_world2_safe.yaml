@@ -1,0 +1,31 @@
+# Phase 1 safe profile for 2-worker DDP on low-resource Windows laptops.
+
+dataset: "cifar10"
+data_root: "./data"
+
+model: "resnet18"
+
+# Conservative first-pass values.
+epochs: 5
+batch_size: 16
+lr: 0.1
+momentum: 0.9
+weight_decay: 0.0005
+lr_milestones: [3, 4]
+lr_gamma: 0.1
+
+distributed: true
+backend: "gloo"
+use_cuda: false
+num_workers: 0
+
+# Keep each process light to avoid system freezes.
+max_cpu_threads: 2
+log_interval_batches: 50
+
+log_dir: "./logs"
+checkpoint_dir: "./checkpoints"
+checkpoint_every: 5
+
+master_addr: "127.0.0.1"
+master_port: 29500

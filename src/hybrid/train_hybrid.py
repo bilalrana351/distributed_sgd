@@ -620,6 +620,11 @@ def _run_worker(
     for _step in range(total_steps):
         mode = mode_flag.value
 
+        # Wall-clock time for this step (must include straggler sleep so the PS
+        # controller sees worker skew; otherwise step_time is only forward+backward
+        # and worker_time_var stays near zero.)
+        t_step_start = time.perf_counter()
+
         # ── Optional straggler delay ─────────────────────────────────────
         if (
             straggler_on
@@ -637,17 +642,16 @@ def _run_worker(
         images = images.to(device)
         targets = targets.to(device)
 
-        # ── Forward + backward (timed) ───────────────────────────────────
+        # ── Forward + backward ───────────────────────────────────────────
         local_model.train()
         for p in local_model.parameters():
             if p.grad is not None:
                 p.grad.zero_()
 
-        t0 = time.perf_counter()
         outputs = local_model(images)
         loss = criterion(outputs, targets)
         loss.backward()
-        step_time = time.perf_counter() - t0
+        step_time = time.perf_counter() - t_step_start
 
         top1, = compute_accuracy(outputs.detach(), targets, topk=(1,))
         loss_meter.update(loss.item(), n=images.size(0))

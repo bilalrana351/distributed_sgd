@@ -1,0 +1,18 @@
+# Phase 1 – Synchronous All-Reduce Baseline
+# Install with: pip install -r requirements.txt
+#
+# PyTorch (CPU-only for Windows without a dedicated GPU)
+# If you have an NVIDIA GPU, replace with the CUDA wheel (see setup guide).
+torch>=2.2.0
+torchvision>=0.17.0
+torchaudio>=2.2.0
+
+# Numerical / data utilities
+numpy>=1.26.0
+pandas>=2.2.0
+
+# Config parsing
+pyyaml>=6.0.1
+
+# Progress bars
+tqdm>=4.66.0

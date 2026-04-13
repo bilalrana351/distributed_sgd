@@ -1,0 +1,56 @@
+# Local / CI smoke test only — NOT for Kaggle full runs.
+# Same controller + straggler as phase4_sA_hybrid.yaml but fewer steps so a switch
+# can be verified quickly (cooldown 120 + evals through ~400 steps).
+#
+#   python src/hybrid/launcher.py --nworkers 2 --config configs/phase4_sA_hybrid_smoke.yaml
+
+dataset:   "cifar10"
+data_root: "./data"
+model:     "resnet18"
+
+run_id:      "p4_sA_hybrid_smoke"
+scenario_id: "sA_persistent_straggler"
+
+lr:    0.01
+seed:  42
+
+total_steps: 320
+batch_size:  32
+
+mode_lock: "none"
+
+param_pull_every:   5
+grad_queue_maxsize: 200
+
+val_interval_steps: 500
+val_num_batches:    10
+
+log_interval_steps: 50
+ps_poll_timeout:    0.5
+sync_poll_interval: 0.005
+
+max_cpu_threads:        2
+num_workers_dataloader: 0
+
+log_dir:        "./logs"
+checkpoint_dir: "./checkpoints"
+
+controller:
+  start_mode:    "sync"
+  eval_interval: 40
+  cooldown_steps: 120
+  decision_window: 2
+  ema_alpha:    0.08
+  window_size:  15
+  straggler_var_high:   0.06
+  grad_var_low:         1.0
+  grad_var_high:        0.90
+  loss_trend_threshold: 0.06
+  straggler_var_low:    0.08
+
+straggler:
+  enabled: true
+  worker_id: 1
+  delay_seconds: 1.5
+  start_step: 0
+  end_step: 320

@@ -55,8 +55,8 @@ controller:
   decision_window: 2
   ema_alpha:    0.08
   window_size:  15
-  straggler_var_high:   0.18   # SWEEP TARGET
-  grad_var_low:         0.85   # SWEEP TARGET
+  straggler_var_high:   0.15   # SWEEP TARGET (aligned with sA_hybrid retune)
+  grad_var_low:         1.0    # SWEEP TARGET (grid below overrides)
   grad_var_high:        0.90
   loss_trend_threshold: 0.06
   straggler_var_low:    0.08   # SWEEP TARGET (cooldown_steps also swept)

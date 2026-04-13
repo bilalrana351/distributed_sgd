@@ -1,0 +1,66 @@
+# Phase 3 – Demonstrate SYNC → ASYNC mode switch (straggler injection)
+#
+# Worker 1 sleeps extra time each step during [start_step, end_step), which
+# inflates worker_time_var.  Controller should flip to async after cooldown +
+# consecutive triggers.
+#
+# Run:
+#   python src/hybrid/launcher.py --nworkers 2 --config configs/phase3_hybrid_straggler.yaml
+#
+# Expect:
+#   - logs/hybrid_*_straggler_demo_switches.csv has ≥1 row
+#   - checkpoint total_switches ≥ 1
+#   - hybrid_*_staleness.csv shows "async" rows after the switch
+
+# ── Dataset / model ──────────────────────────────────────────────────────────
+dataset:   "cifar10"
+data_root: "./data"
+model:     "resnet18"
+
+# Unique log/checkpoint suffix (avoids appending to smoke-test CSVs)
+run_id: "straggler_demo"
+
+lr: 0.01
+seed: 42
+
+# Shorter run: enough steps for straggler window + cooldown + a few evals
+total_steps: 1200
+batch_size: 32
+
+param_pull_every: 5
+grad_queue_maxsize: 200
+
+val_interval_steps: 400
+val_num_batches: 30
+
+log_interval_steps: 50
+ps_poll_timeout: 0.5
+sync_poll_interval: 0.005
+
+max_cpu_threads: 2
+num_workers_dataloader: 0
+
+log_dir: "./logs"
+checkpoint_dir: "./checkpoints"
+
+# Slightly more aggressive controller so a demo run actually switches
+controller:
+  start_mode: "sync"
+  eval_interval: 40
+  cooldown_steps: 120
+  decision_window: 2
+  ema_alpha: 0.08
+  window_size: 15
+
+  straggler_var_high: 0.18
+  grad_var_low: 0.75
+
+  grad_var_high: 1.0
+  loss_trend_threshold: 0.08
+
+straggler:
+  enabled: true
+  worker_id: 1
+  delay_seconds: 2.0
+  start_step: 150
+  end_step: 800
