@@ -16,3 +16,6 @@ pyyaml>=6.0.1
 
 # Progress bars
 tqdm>=4.66.0
+
+# Plotting (Phase 4 report figures)
+matplotlib>=3.8.0
