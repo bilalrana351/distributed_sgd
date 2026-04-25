@@ -1,0 +1,556 @@
+% Deliverable 2 — Assignment 2: Hybrid Distributed SGD System Design
+% Compile with: pdflatex (or xelatex/lualatex) — run twice for references
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{ragged2e}
+\usepackage{parskip}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{caption}
+\usepackage{amsmath}
+\usepackage{textcomp}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  urlcolor=blue!60!black,
+  citecolor=blue!60!black,
+}
+
+\newcolumntype{L}{>{\RaggedRight\arraybackslash}X}
+
+\lstdefinestyle{mermaid}{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  frame=single,
+  backgroundcolor=\color{gray!8},
+  captionpos=b,
+}
+\lstdefinestyle{bashcode}{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  backgroundcolor=\color{gray!8},
+}
+
+\title{Deliverable 2 --- Assignment 2:\\Hybrid Distributed SGD System Design}
+\author{Parameter Server $\leftrightarrow$ Ring All-Reduce --- bi-directional online controller}
+\date{Version 2026-04-20}
+
+\begin{document}
+\maketitle
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \begin{tabularx}{\linewidth}{@{}l L@{}}
+    \toprule
+    \textbf{Field} & \textbf{Value} \\
+    \midrule
+    Course & Parallel and Distributed Computing (Spring 2026, SEECS, NUST) \\
+    Program / Section & BS Computer Science --- Section 13-E --- Semester 6 \\
+    Deliverable & D2: Full System Design Document \\
+    Learning outcome tags & CLO 3 $\cdot$ PLO-4 $\cdot$ C-5 (Evaluate) \\
+    Companion deliverables & D1 Proposal (submitted) $\cdot$ D3 Final Presentation \& Demonstration, C-6 (separate) \\
+    Source artefacts & \texttt{src/hybrid/}, \texttt{docker/}, \texttt{docs/phase\{1..5\}\_*}, \texttt{logs/phase4\_merged/} \\
+    Version & 2026-04-20 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\begin{abstract}
+\noindent
+This document designs and evaluates, at C-5 level, a hybrid distributed SGD system that switches between synchronous ring-allreduce semantics and asynchronous parameter-server semantics at runtime under the control of a lightweight, bi-directional, threshold-based policy.
+\end{abstract}
+
+\begin{quote}
+\textbf{Scope note.} This is the system-design document. The full empirical evaluation (measured speedup, sensitivity sweep results, comparative baselines, novelty justification) is Deliverable 3 and is out of scope here. Phase 4/5 numbers appear only as one-line validation checks against each analytical model.
+\end{quote}
+
+\section{System architecture diagram}
+
+The system is a 1-container, $(1{+}N)$-process layout. One process acts as the Parameter Server (PS). $N$ processes act as workers. All processes share a single PyTorch model placed in shared memory and communicate through multiprocessing queues. The whole topology lives inside one Docker container.
+
+\subsection{Main architecture diagram}
+
+\textit{Mermaid source} (render at \url{https://mermaid.live} or use a Mermaid-capable pipeline). PDF engines do not render Mermaid natively.
+
+\begin{lstlisting}[style=mermaid, caption={Main architecture (Mermaid flowchart)}]
+flowchart LR
+    subgraph DOCKER["Docker container (pdc-hybrid:latest)  —  cpus=4, mem=6g"]
+        direction LR
+
+        subgraph PS["Parameter Server process (rank 0)"]
+            AGG["Aggregator<br/>(sync avg OR async apply)"]
+            CTRL["Controller<br/>(thresholds + cooldown)"]
+            MC["Metrics Collector<br/>(EMA of signals)"]
+            MODEL[("Shared model memory<br/>model.share_memory()")]
+            FLAG[["mode_flag : Value('i')"]]
+            SR[["sync_round : Value('i')"]]
+        end
+
+        W1[["Worker 1 process<br/>rank 1"]]
+        W2[["Worker 2 process<br/>rank 2"]]
+        WN[["Worker N process<br/>rank N"]]
+
+        GQ{{"grad_queue : mp.Queue"}}
+        VQ{{"val_queue : mp.Queue"}}
+        LOCK[/"param_lock : mp.Lock"/]
+
+        CSV[(CSV log sinks<br/>*_ps.csv, *_switches.csv,<br/>*_staleness.csv, *_worker*.csv)]
+        CKPT[(checkpoints/*.pt)]
+    end
+
+    W1 -- "gradient tuple" --> GQ
+    W2 -- "gradient tuple" --> GQ
+    WN -- "gradient tuple" --> GQ
+    GQ --> AGG
+    AGG -->|read/write under LOCK| MODEL
+    AGG -->|increment| SR
+    W1 -. "pull params" .-> MODEL
+    W2 -. "pull params" .-> MODEL
+    WN -. "pull params" .-> MODEL
+    W1 --> VQ
+    VQ --> AGG
+    MC --> CTRL
+    CTRL -->|flip| FLAG
+    FLAG -.-> AGG
+    AGG --> CSV
+    CTRL --> CSV
+    AGG --> CKPT
+\end{lstlisting}
+
+\subsection{Control-signal path}
+
+\begin{lstlisting}[style=mermaid, caption={Control-signal path (Mermaid)}]
+flowchart LR
+    ST["Per-worker step-time samples<br/>grad_norm samples<br/>loss samples"]
+    EMA["Metrics Collector<br/>(EMA smoothing)"]
+    SIG["Signal vector<br/>{worker_time_var,<br/>grad_norm_var, loss_trend}"]
+    DEC["Controller.evaluate()<br/>thresholds + cooldown<br/>+ decision_window"]
+    FLIP{{mode_flag flip?}}
+    AGGB["Aggregator behaviour change<br/>(sync avg ↔ async apply)"]
+    LOG[("*_switches.csv row")]
+
+    ST --> EMA --> SIG --> DEC --> FLIP
+    FLIP -- yes --> AGGB
+    FLIP -- yes --> LOG
+    FLIP -- no --> DEC
+\end{lstlisting}
+
+\subsection{Component list}
+
+{\footnotesize
+\begin{longtable}{@{}r L L L@{}}
+  \toprule
+  \# & \textbf{Component} & \textbf{Responsibility} & \textbf{Language / library; Storage} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \# & \textbf{Component} & \textbf{Responsibility} & \textbf{Language / library; Storage} \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  1 & Parameter Server (rank 0) & Owns global model; runs aggregator + controller + metrics collector. & Python 3.12 + PyTorch 2.x; in-memory (shared) \\
+  2 & Worker processes (rank $1..N$) & Forward/backward on local shard; push gradients; pull params. & Python 3.12 + PyTorch 2.x; in-memory (shared) \\
+  3 & \texttt{grad\_queue} & FIFO of gradient tuples from workers to the PS. & \texttt{torch.multiprocessing.Queue}; in-memory \\
+  4 & \texttt{val\_queue} & Worker-0 validation results for PS logging. & \texttt{torch.multiprocessing.Queue}; in-memory \\
+  5 & Shared model memory & Single PyTorch model via \texttt{model.share\_memory()}. & PyTorch tensors; in-memory (shared) \\
+  6 & \texttt{param\_lock} & Protects parameter reads during aggregation. & \texttt{multiprocessing.Lock}; in-memory \\
+  7 & \texttt{mode\_flag} & $0$ = sync, $1$ = async. Read by aggregator; written by controller. & \texttt{multiprocessing.Value('i')}; in-memory \\
+  8 & \texttt{sync\_round} & Monotonic counter; incremented by PS after each sync step. & \texttt{multiprocessing.Value('i')}; in-memory \\
+  9 & Controller & Threshold rules + cooldown + decision window. & \texttt{src/hybrid/controller.py}; in-memory \\
+  10 & Metrics Collector & EMA-smoothed signals. & \texttt{src/hybrid/metrics\_collector.py}; in-memory \\
+  11 & CSV log sinks & \texttt{*\_ps.csv}, \texttt{*\_switches.csv}, etc. & Python \texttt{csv}; on-disk (bind mount) \\
+  12 & Checkpoint sink & Final model state + \texttt{global\_step} + \texttt{switch\_history}. & \texttt{torch.save}; on-disk (bind mount) \\
+  13 & Docker container & $1$ PS + $N$ workers; bind-mounts \texttt{data/}, \texttt{logs/}, \texttt{checkpoints/}. & \texttt{docker/Dockerfile} + \texttt{docker-compose.yml}; image \\
+\end{longtable}
+}
+
+\subsection{Evaluation}
+\textbf{Strength:} the design has exactly one control point (the PS) and exactly one mutable shared object per concern (\texttt{mode\_flag}, \texttt{sync\_round}, \texttt{grad\_queue}, \texttt{param\_lock}). That keeps reasoning about consistency simple. \textbf{Weakness:} the whole topology sits in one OS process tree, so it is an emulation of the proposal's multi-container target, not the target itself. \textbf{C-5 judgement:} the architecture is correct and reproducible inside its stated scope (1 host, CPU, up to ${\sim}8$ workers), and it preserves the training semantics of both sync and async modes; a multi-container Gloo deployment is a transport change, not a redesign.
+
+\section{Communication model}
+
+Every inter-component interaction maps to standard distributed-systems primitives. Because the whole system lives in one container, the transport is shared-memory queues + a lock, not a network. This is an honest emulation of the proposal's container-based topology: the primitive semantics are the same (gather, reduce, broadcast, point-to-point), only the wire is replaced by an intra-host queue.
+
+\textbf{Transport choice and why.} The proposal named PyTorch RPC for async PS and PyTorch Distributed (Gloo) for sync. On the Windows CPU build used for development \texttt{torch.distributed.rpc.is\_available()} returns \texttt{False}, and swapping between two different backends mid-run is non-trivial. We therefore keep one transport (\texttt{torch.multiprocessing}) and change only the aggregator rule when \texttt{mode\_flag} flips. The training semantics of each mode are preserved; only the wire is intra-host.
+
+\subsection{Sync mode --- per logical round}
+
+\begin{table}[htbp]
+  \centering
+  \footnotesize
+  \begin{tabularx}{\linewidth}{@{}c L L L L L@{}}
+    \toprule
+    \textbf{Step} & \textbf{Primitive} & \textbf{From $\to$ To} & \textbf{Payload} & \textbf{Transport} & \textbf{Msg \#} \\
+    \midrule
+    1 & p2p & Worker $i \to$ PS & (grads, worker\_id, step, loss, step\_time, grad\_norm) & \texttt{mp.Queue} & $N$ \\
+    2 & gather (logical) & PS buffers one grad per worker & wait until buffer has $N$ gradients & in-process buffer & 0 (above) \\
+    3 & reduce (average) & PS internal & averaged gradient; SGD under \texttt{param\_lock} & in-process & 0 \\
+    4 & broadcast (emulated) & PS $\to$ Workers & increment \texttt{sync\_round}; workers read shared params & \texttt{mp.Value} + shared mem & 1 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\noindent Total messages per logical round: $\mathbf{N + 1}$ ($N$ worker pushes + 1 \texttt{sync\_round} increment).
+
+\subsection{Async mode --- per gradient push}
+
+\begin{table}[htbp]
+  \centering
+  \footnotesize
+  \begin{tabularx}{\linewidth}{@{}c L L L L L@{}}
+    \toprule
+    \textbf{Step} & \textbf{Primitive} & \textbf{From $\to$ To} & \textbf{Payload} & \textbf{Transport} & \textbf{Msg \#} \\
+    \midrule
+    1 & p2p & Worker $i \to$ PS & (grads, \ldots) & \texttt{mp.Queue} & 1 \\
+    2 & reduce (apply) & PS internal & apply gradient under \texttt{param\_lock} & in-process & 0 \\
+    3 & pull (periodic) & Worker $i \leftarrow$ PS & copy shared params every \texttt{param\_pull\_every} steps & shared memory & $1/\texttt{param\_pull\_every}$ \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\noindent Total messages per async update: ${\sim}2$ per worker step (1 push + 1 periodic pull amortised).
+
+\noindent \textbf{Why this is a valid emulation.} Every message has a direct network-equivalent. A worker push maps to an RPC send; broadcast emulated by \texttt{sync\_round} + shared memory maps to a PS param pull or an all-reduce completion callback. Moving to multi-container is a transport swap only.
+
+\noindent \textbf{Validation check.} Phase 4 sA hybrid runs show the expected pattern: 20\% of time in sync mode (100\% sync\%, staleness 0) and 80\% in async with non-zero staleness. The message count is a prediction; D3 will report measured counts.
+
+\subsection{Evaluation}
+\textbf{Strength:} the communication model matches the proposal's primitives; sync message-count $N+1$ is the PS-style gather + broadcast count (upper bound of ring-allreduce's $2(N-1)$ for small $N$; our $N=2$: 3 vs 2). \textbf{Weakness:} we do not exploit ring-allreduce's bandwidth optimality on a network. \textbf{C-5 judgement:} faithful at the primitive level; honest about transport substitution.
+
+\section{Consistency model}
+
+\subsection{Definitions (one line each)}
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabularx}{\linewidth}{@{}l L@{}}
+    \toprule
+    \textbf{Term} & \textbf{One-line meaning} \\
+    \midrule
+    Strong consistency & All workers always see the same parameters at the same logical step (BSP-style). \\
+    Eventual consistency & Workers may see stale parameters but converge after enough updates. \\
+    Bounded staleness & Staleness never exceeds fixed $K$ (here $K = \texttt{param\_pull\_every}$ local steps). \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{Per-mode classification}
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabularx}{\linewidth}{@{}l L L L@{}}
+    \toprule
+    \textbf{Mode} & \textbf{Class} & \textbf{Bound} & \textbf{What workers see} \\
+    \midrule
+    Sync (BSP) & Strong & 0 & Same parameters after every averaged step. \\
+    Async (PS) & Bounded staleness & $K=\texttt{param\_pull\_every}$ ($K{=}5$ in configs) & Gradients on up to $K$-step-old params. \\
+    Hybrid & Mode-dependent & 0 in sync segment, $K$ in async & Class changes at each \texttt{mode\_flag} flip. \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{What a consistency switch means}
+
+When \texttt{mode\_flag} flips sync $\to$ async at \texttt{global\_step} $g$, parameters at $g$ are the last strongly-consistent snapshot. From $g+1$, workers see bounded-staleness views. When flipping async $\to$ sync at $g'$, the PS buffers the next $N$ gradients, does one averaged update, then releases workers. No parameter rollback; staleness grows only in async segments, capped at $K$.
+
+\subsection{Validation check (one line)}
+
+Phase 4 sA hybrid average staleness is 359.6; max staleness in the ${\sim}400$ range. Step-count staleness (\texttt{global\_step} $-$ \texttt{worker\_step}) respects bounded staleness: staleness grows only in async segments (sync \% ${\approx}20$\%) and not during sync segments.
+
+\subsection{Evaluation}
+\textbf{Strength:} hybrid gives a dial between quality (sync) and throughput (async), decided from live signals. \textbf{Weakness:} consistency switches are not free---first sync aggregation after async merges stale gradients with a fresh step (sB hybrid loses accuracy when over-switching). \textbf{C-5 judgement:} contract is well-defined per segment; transition semantics when draining stale gradients are an open design question.
+
+\section{Failure model}
+
+\subsection{Failure classes covered by the design}
+
+{\footnotesize
+\begin{longtable}{@{}L L L L@{}}
+  \toprule
+  \textbf{Failure class} & \textbf{Detection} & \textbf{Mitigation} & \textbf{Residual risk} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Failure class} & \textbf{Detection} & \textbf{Mitigation} & \textbf{Residual risk} \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  Worker crash & Undetected; \texttt{grad\_queue} stops receiving from that worker. & None automatic. & High --- effective $N$ drops silently. \\
+  PS crash & Undetected by workers; workers block on full queue. & Restart from checkpoint. & High --- no watchdog. \\
+  Stalled queue & PS \texttt{poll\_timeout} + cap (\texttt{grad\_queue\_maxsize}=200). & Workers block; no silent drop. & Low --- latency cost. \\
+  Deadlock at mode transition & PS logs flips; sync$\to$async releases \texttt{sync\_round} waiters. & \texttt{sync\_round += 1} on transition. & Low. \\
+  Lost gradient (queue full) & Workers block at maxsize. & Blocking, not dropping. & Medium under straggler. \\
+  Indefinite straggler & \texttt{worker\_time\_var} high. & Switch to async after cooldown + window. & Medium. \\
+  Controller thrashing & Bookkeeping + EMA. & \texttt{cooldown\_steps}, \texttt{decision\_window}, EMA. & Low (sA); Medium (sB). \\
+\end{longtable}
+}
+
+\subsection{Failure classes NOT covered}
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \begin{tabularx}{\linewidth}{@{}l L@{}}
+    \toprule
+    \textbf{Failure class} & \textbf{What would be needed} \\
+    \midrule
+    Byzantine workers & Krum/median; per-worker anomaly detection; signatures. \\
+    Network partition (multi-container) & Gloo/RPC deployment; heartbeat; timeouts; PS re-election. \\
+    Disk-full on log sink & Log rotation; pre-run free-space check. \\
+    Checkpoint corruption & Atomic rename + SHA-256 sidecar; keep $N$-last checkpoints. \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\noindent\textit{Scope note. This section is the failure \emph{model}. Failure injection and recovery measurement belong to Deliverable 3.}
+
+\subsection{Evaluation}
+\textbf{Strength:} thrashing has strong mitigation (cooldown + window + EMA). \textbf{Weakness:} assumes no process death---fine for single-container scope, not multi-host. \textbf{C-5 judgement:} explicit about handled vs.\ not handled failures.
+
+\section{Performance modeling}
+
+\subsection{Amdahl's law --- sync mode serial fraction}
+
+Let $T(N) = T_{\text{compute}}/N + T_{\text{serial}}$. Serial fraction $s = T_{\text{serial}}/T(1)$. Speedup $S(N) = 1/\bigl(s + (1-s)/N\bigr)$.
+
+Assumption (bound only): $s \approx 0.10$ for ResNet-18 on CPU with shared-memory aggregator.
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabular}{@{}r r@{}}
+    \toprule
+    $N$ workers & $S(N)$ at $s=0.10$ \\
+    \midrule
+    2 & $1.82\times$ \\
+    4 & $3.08\times$ \\
+    8 & $4.71\times$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Gustafson's law}
+
+$S_{\text{weak}}(N) = N - s(N-1)$. For $s=0.10$: $1.9\times$ ($N{=}2$), $3.7\times$ ($N{=}4$), $7.3\times$ ($N{=}8$). Configs hold GLOBAL batch constant at 32, so operation is closer to strong scaling (Amdahl).
+
+\subsection{Message complexity}
+
+\begin{table}[htbp]
+  \centering
+  \footnotesize
+  \begin{tabularx}{\linewidth}{@{}l L L L@{}}
+    \toprule
+    \textbf{Mode} & \textbf{Per round / update} & \textbf{Matches} & \textbf{Our impl.} \\
+    \midrule
+    Sync (PS-emul.) & $M_{\text{sync}}(N)=2N$ or $N{+}1$ here & PS gather+broadcast vs.\ ring & $N{+}1$ \\
+    Async & $M_{\text{async}}(N)=2$ per worker update & Classic PS async & Matches \\
+    Hybrid & $M_h = \alpha M_{\text{sync}} + (1-\alpha) N M_{\text{async}}$ & $\alpha$ = sync time fraction & $\alpha$ from \texttt{*\_staleness.csv} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{Validation check}
+
+Phase 4: sA sync ${\approx}13.6$ img/s; sA hybrid ${\approx}23.3$ img/s (sync \% ${\approx}20$\%); sA async ${\approx}43.2$ img/s. With $\alpha=0.20$, naive mix $\alpha\cdot 13.6 + (1-\alpha)\cdot 43.2 \approx 37.3$ img/s $>$ measured, consistent with unmodeled flip/lock costs. Full analysis in D3.
+
+\subsection{Evaluation}
+\textbf{Strength:} models explain qualitative shape (sync slow under straggler, async fast, hybrid between). \textbf{Weakness:} no explicit flip cost; gap 37.3 vs.\ 23.3 img/s. \textbf{C-5 judgement:} ranking and order of magnitude correct; constant factor needs D3.
+
+\section{Scalability assumptions}
+
+{\footnotesize
+\begin{longtable}{@{}L L L L@{}}
+  \toprule
+  \textbf{Axis} & \textbf{Assumption} & \textbf{Expected limit} & \textbf{Breaking point} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Axis} & \textbf{Assumption} & \textbf{Expected limit} & \textbf{Breaking point} \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  Worker count $N$ & \texttt{grad\_queue} + one \texttt{param\_lock} on one host. & ${\sim}8$ on laptop; ${\sim}32$ server CPU. & Lock contention; switch to Gloo/RPC. \\
+  Model size & ResNet-18 (${\sim}11$M params) in shared memory. & ${\sim}100$M params on 16\,GB host. & Peak mem $\approx (N{+}1)\times$ gradient size. \\
+  Dataset & Streamed from \texttt{data/}. & CIFAR-10/100; ImageNet from disk. & Disk I/O on laptop. \\
+  Heterogeneity & Controller detects stragglers. & ${\sim}1/N$ straggler fraction. & Multiple stragglers $\to$ long async (sB). \\
+\end{longtable}
+}
+
+\subsection{Path from emulation to multi-container}
+
+\begin{enumerate}[leftmargin=*]
+  \item Replace \texttt{grad\_queue} and shared-memory pull with \texttt{torch.distributed}: \texttt{all\_reduce} (sync), \texttt{send}/\texttt{recv} + PS apply loop (async). Same aggregator rule and controller.
+  \item Promote \texttt{mode\_flag} and \texttt{sync\_round} to tensor broadcast + barrier; controller logic unchanged.
+  \item \texttt{docker-compose}: $N{+}1$ services, \texttt{GLOO\_SOCKET\_IFNAME}, \texttt{MASTER\_ADDR}.
+\end{enumerate}
+
+\noindent\textit{Measured scalability curves belong to Deliverable 3.}
+
+\subsection{Evaluation}
+\textbf{Strength:} migration path is short because logic is decoupled from transport. \textbf{Weakness:} $N>2$ not tested; $N=4,8$ are model-only. \textbf{C-5 judgement:} believable up to ${\sim}8$ workers; needs measurement for stronger claims.
+
+\section{Implementation plan}
+
+\subsection{Already done --- phases}
+
+{\footnotesize
+\begin{longtable}{@{}l L L@{}}
+  \toprule
+  \textbf{Phase} & \textbf{Delivered} & \textbf{Folders / files} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Phase} & \textbf{Delivered} & \textbf{Folders / files} \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  Phase 1 & Sync DDP baseline & \texttt{src/sync\_allreduce/}, \texttt{configs/phase1\_*.yaml} \\
+  Phase 2 & Async PS baseline & \texttt{src/async\_ps/}, \texttt{configs/phase2\_*.yaml} \\
+  Phase 3 & Hybrid + controller & \texttt{src/hybrid/}, \texttt{configs/phase3\_*.yaml} \\
+  Phase 4 & Scenarios + sweep + Docker & \texttt{configs/phase4\_*.yaml}, \texttt{docker/}, \texttt{experiments/}, \texttt{logs/phase4\_merged/} \\
+  Phase 5 & Tables, figures, reporting & \texttt{experiments/phase5\_report\_assets.py}, \texttt{docs/phase5\_*}, \texttt{docs/figures/} \\
+\end{longtable}
+}
+
+\subsection{Near-term --- apply best sweep to Scenario B}
+
+{\footnotesize
+\begin{longtable}{@{}r L L@{}}
+  \toprule
+  \textbf{Step} & \textbf{Task} & \textbf{Artefact} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Step} & \textbf{Task} & \textbf{Artefact} \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  1 & Duplicate \texttt{phase4\_sB\_hybrid.yaml} $\to$ \texttt{phase4\_sB\_hybrid\_tuned.yaml}; tune controller. & New YAML \\
+  2 & \texttt{docker compose run scenario\_runner ...} (3 seeds). & CSV logs \\
+  3 & Re-run \texttt{analyze\_results.py}, \texttt{phase5\_report\_assets.py}. & Updated tables/figures \\
+  4 & Predict: sB hybrid accuracy $>40$\%, TTA under sync, lower seed variance. & D3 verification \\
+\end{longtable}
+}
+
+\subsection{Longer-term --- Gloo + CIFAR-100 + MobileNetV2}
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \begin{tabularx}{\linewidth}{@{}l L c@{}}
+    \toprule
+    \textbf{WBS} & \textbf{Task} & \textbf{Effort} \\
+    \midrule
+    L1 & \texttt{send}/\texttt{recv} + PS loop & M \\
+    L2 & \texttt{broadcast} for flag tensor & S \\
+    L3 & Extend compose: 1 PS + 4 workers & S \\
+    L4 & CIFAR-100 loader & S \\
+    L5 & MobileNetV2 + re-run matrix & M \\
+    L6 & Heartbeat + timeout + resume & L \\
+    L7 & Docs + report + slides & S \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{Responsibility matrix (solo)}
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabularx}{\linewidth}{@{}l L L@{}}
+    \toprule
+    \textbf{Role} & \textbf{Owner} & \textbf{Outputs} \\
+    \midrule
+    Implementation & Student & \texttt{src/}, \texttt{configs/}, \texttt{docker/}, \texttt{experiments/} \\
+    Testing & Student & Phase 4 matrix, sweep, CSVs \\
+    Documentation & Student & \texttt{docs/*.md} \\
+    Presentation & Student & \texttt{phase5\_slides.md}, D3 demo \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{Gantt-style timeline}
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \begin{tabularx}{\linewidth}{@{}l L L@{}}
+    \toprule
+    \textbf{Week} & \textbf{Milestone} & \textbf{Outcome} \\
+    \midrule
+    W1 & Phase 1 & \texttt{logs/sync\_*.csv} \\
+    W2 & Phase 2 & \texttt{logs/async\_ps\_*.csv} \\
+    W3 & Phase 3 & First switch in \texttt{*\_switches.csv} \\
+    W4--W6 & Phase 4 & \texttt{logs/phase4\_merged/}, image, tables \\
+    W7 & Phase 5 & \texttt{phase5\_final\_report.md}, figures \\
+    W8 & Deliverable 2 & This document (\texttt{.md}, \texttt{.docx}) \\
+    W9 & \S~7.2 sB tuning & Updated sB hybrid row \\
+    W10 & Deliverable 3 & Demo + measured evaluation \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{Deployment (Docker)}
+
+\begin{lstlisting}[style=bashcode, caption={Rebuild and run (bash)}]
+docker compose -f docker/docker-compose.yml build
+docker compose -f docker/docker-compose.yml run --rm scenario_runner \
+    src/hybrid/launcher.py --nworkers 2 --config configs/phase4_sA_hybrid.yaml
+docker compose -f docker/docker-compose.yml run --rm analyzer \
+    experiments/analyze_results.py --log-dir /workspace/logs/phase4_merged \
+    --tta-target 40.0 --output docs/phase4_results_tables.md
+\end{lstlisting}
+
+\subsection{Evaluation}
+\textbf{Strength:} timeline maps to concrete artefacts; near-term is small change + commands. \textbf{Weakness:} Gloo migration not smoke-tested; effort estimates are guesses. \textbf{C-5 judgement:} actionable and reproducible; honest about done vs.\ refactor work.
+
+\section{Risk analysis}
+
+{\scriptsize
+\begin{longtable}{@{}L c c L L L L@{}}
+  \toprule
+  \textbf{Risk} & \textbf{L} & \textbf{I} & \textbf{Lvl} & \textbf{Current mit.} & \textbf{Proposed mit.} & \textbf{Residual} \\
+  \midrule
+  \endfirsthead
+  \toprule
+  \textbf{Risk} & \textbf{L} & \textbf{I} & \textbf{Lvl} & \textbf{Current mit.} & \textbf{Proposed mit.} & \textbf{Residual} \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  R1 Controller over-switching & H & H & HIGH & cooldown, window, EMA & sweep\_17 to sB; hysteresis & Medium \\
+  R2 CPU throughput ceiling & H & M & MED & caps, relative figures & GPU re-run & Mixed \\
+  R3 Log vintage bias & M & M & MED & documented & clean re-export & Low after fix \\
+  R4 Docker drift & M & H & HIGH & loose pins & pin versions + base SHA & Low after pin \\
+  R5 Checkpoint bloat & M & L & LOW & final ckpt only & \texttt{--no-checkpoint} & Very low \\
+  R6 Lost \texttt{threshold\_folders/} & L & H & MED & merged logs on disk & commit merged + LFS & Low if committed \\
+  R7 Deadlock $N>2$ & L & H & MED & \texttt{sync\_round} bump & unit test 4 workers & Low with test \\
+\end{longtable}
+}
+
+\subsection{Top-3 risks summary}
+
+The three most important risks are (1) controller over-switching (visible in sB hybrid 36.9\% accuracy); (2) Docker image drift (\texttt{>=} pins, floating base tag); (3) reproducibility if \texttt{threshold\_folders/} disappears. Addressed respectively by tuning, pinning, and committing merged logs.
+
+\subsection{Evaluation}
+\textbf{Strength:} every HIGH risk has a concrete, cheap mitigation. \textbf{Weakness:} R1 is a policy problem needing deeper signals or per-scenario thresholds. \textbf{C-5 judgement:} risk register is honest about limits; top-3 ranking and fixes are defensible.
+
+\end{document}

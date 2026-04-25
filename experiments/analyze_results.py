@@ -357,7 +357,11 @@ def main() -> None:
     comparison_md  = build_comparison_table(grouped, args.tta_target)
     switch_ev_md   = build_switch_events_table(all_metrics)
 
-    output = "\n\n".join([comparison_md, switch_ev_md])
+    preface = (
+        "_Sweep summary, figures, and limitations: "
+        "[phase4_results_discussion.md](phase4_results_discussion.md)._"
+    )
+    output = "\n\n".join([preface, comparison_md, switch_ev_md])
     print("\n" + "=" * 70)
     print(output)
     print("=" * 70)
