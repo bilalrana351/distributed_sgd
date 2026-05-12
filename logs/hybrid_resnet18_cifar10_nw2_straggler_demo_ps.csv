@@ -1,0 +1,4 @@
+global_step,elapsed_time,current_mode,val_loss,val_acc_top1,avg_staleness,max_staleness,min_staleness,updates_in_interval,num_workers,batch_size
+400,2189.06,sync,1.701062,37.2396,0.0,0,0,800,2,32
+813,3869.84,async,1.552201,44.7917,-0.016,0,-1,813,2,32
+1599,4755.5,async,1.489013,44.4271,202.5623,399,-1,786,2,32

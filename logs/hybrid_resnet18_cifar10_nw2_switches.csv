@@ -1,0 +1,1 @@
+global_step,elapsed_time,old_mode,new_mode,worker_time_var,grad_norm_var,loss_trend

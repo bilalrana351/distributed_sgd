@@ -1,0 +1,39 @@
+batch_size: 32
+checkpoint_dir: ./checkpoints
+controller:
+  cooldown_steps: 150
+  decision_window: 2
+  ema_alpha: 0.08
+  eval_interval: 40
+  grad_var_high: 0.9
+  grad_var_low: 0.8
+  loss_trend_threshold: 0.06
+  start_mode: sync
+  straggler_var_high: 0.2
+  straggler_var_low: 0.12
+  window_size: 15
+data_root: ./data
+dataset: cifar10
+grad_queue_maxsize: 200
+log_dir: ./logs
+log_interval_steps: 50
+lr: 0.01
+max_cpu_threads: 2
+mode_lock: sync
+model: resnet18
+num_workers_dataloader: 0
+param_pull_every: 5
+ps_poll_timeout: 0.5
+run_id: p4_sA_sync_s42
+scenario_id: sA_persistent_straggler
+seed: 42
+straggler:
+  delay_seconds: 1.5
+  enabled: true
+  end_step: 800
+  start_step: 0
+  worker_id: 1
+sync_poll_interval: 0.005
+total_steps: 800
+val_interval_steps: 200
+val_num_batches: 30

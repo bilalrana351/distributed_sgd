@@ -1,0 +1,4 @@
+scenario,mode,seed,config,status,wall_time_s,exit_code
+sB,sync,42,configs/phase4_sB_sync.yaml,ok,1609.8,0
+sB,async,42,configs/phase4_sB_async.yaml,ok,1445.6,0
+sB,hybrid,42,configs/phase4_sB_hybrid.yaml,ok,1600.1,0

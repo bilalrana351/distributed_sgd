@@ -1,0 +1,2 @@
+scenario,mode,seed,config,status,wall_time_s,exit_code
+sB,hybrid,777,configs/phase4_sB_hybrid.yaml,ok,1566.5,0

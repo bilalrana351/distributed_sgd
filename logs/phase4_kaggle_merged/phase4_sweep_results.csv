@@ -1,0 +1,13 @@
+run_id,straggler_var_high,grad_var_low,cooldown_steps,switch_count,first_switch_step,final_val_acc,wall_time_s,status
+sweep_01_svh012_gvl07_cd100,0.12,0.7,100,0,-1,39.1667,1144.0,ok
+sweep_02_svh012_gvl07_cd150,0.12,0.7,150,0,-1,38.5938,1143.6,ok
+sweep_03_svh012_gvl085_cd100,0.12,0.85,100,0,-1,39.5312,1147.0,ok
+sweep_04_svh012_gvl085_cd150,0.12,0.85,150,0,-1,39.3229,1141.4,ok
+sweep_05_svh018_gvl07_cd100,0.18,0.7,100,0,-1,39.7917,1144.5,ok
+sweep_06_svh018_gvl07_cd150,0.18,0.7,150,0,-1,38.5938,1140.9,ok
+sweep_07_svh018_gvl085_cd100,0.18,0.85,100,0,-1,38.2812,1141.0,ok
+sweep_08_svh018_gvl085_cd150,0.18,0.85,150,0,-1,37.3958,1131.6,ok
+sweep_09_svh025_gvl07_cd100,0.25,0.7,100,0,-1,37.7083,1137.8,ok
+sweep_10_svh025_gvl07_cd150,0.25,0.7,150,0,-1,38.8021,1140.5,ok
+sweep_11_svh025_gvl085_cd100,0.25,0.85,100,0,-1,38.8021,1149.5,ok
+sweep_12_svh025_gvl085_cd150,0.25,0.85,150,0,-1,39.4792,1149.1,ok

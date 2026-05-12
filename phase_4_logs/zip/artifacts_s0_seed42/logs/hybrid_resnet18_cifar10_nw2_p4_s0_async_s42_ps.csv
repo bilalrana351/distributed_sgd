@@ -1,0 +1,5 @@
+global_step,elapsed_time,current_mode,val_loss,val_acc_top1,avg_staleness,max_staleness,min_staleness,updates_in_interval,throughput_img_per_sec,num_workers,batch_size,scenario_id
+416,291.21,async,2.026235,28.0729,103.8462,200,0,416,45.71,2,32,s0_homogeneous
+831,580.76,async,1.786038,35.5208,311.3253,414,200,415,45.86,2,32,s0_homogeneous
+1246,869.0,async,1.604335,41.5104,518.5542,629,400,415,46.07,2,32,s0_homogeneous
+1599,1113.03,async,1.49078,45.2604,712.7479,799,600,353,46.29,2,32,s0_homogeneous

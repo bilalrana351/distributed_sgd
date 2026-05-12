@@ -1,0 +1,3 @@
+scenario,mode,seed,config,status,wall_time_s,exit_code
+sA,hybrid,123,configs/phase4_sA_hybrid.yaml,ok,2399.4,0
+sA,hybrid,777,configs/phase4_sA_hybrid.yaml,ok,2419.3,0

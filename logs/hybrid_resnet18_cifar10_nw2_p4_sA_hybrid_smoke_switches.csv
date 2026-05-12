@@ -1,0 +1,2 @@
+global_step,elapsed_time,old_mode,new_mode,trigger_reason,worker_time_var,grad_norm_var,loss_trend
+120,324.89,sync,async,straggler_detected,0.381764,0.017216,-0.023925

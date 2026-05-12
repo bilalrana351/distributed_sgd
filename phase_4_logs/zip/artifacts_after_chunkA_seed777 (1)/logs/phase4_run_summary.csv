@@ -1,0 +1,4 @@
+scenario,mode,seed,config,status,wall_time_s,exit_code
+sA,sync,777,configs/phase4_sA_sync.yaml,ok,1916.3,0
+sA,async,777,configs/phase4_sA_async.yaml,ok,1973.6,0
+sA,hybrid,777,configs/phase4_sA_hybrid.yaml,ok,1920.6,0

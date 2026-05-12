@@ -1,0 +1,2 @@
+global_step,elapsed_time,current_mode,val_loss,val_acc_top1,avg_staleness,max_staleness,min_staleness,updates_in_interval,throughput_img_per_sec,num_workers,batch_size,scenario_id
+633,651.03,async,1.867737,35.4167,66.9416,379,-1,753,31.11,2,32,sA_persistent_straggler

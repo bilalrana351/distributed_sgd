@@ -1,0 +1,5 @@
+global_step,elapsed_time,current_mode,val_loss,val_acc_top1,avg_staleness,max_staleness,min_staleness,updates_in_interval,throughput_img_per_sec,num_workers,batch_size,scenario_id
+246,532.83,async,2.181653,23.125,9.929,79,-1,366,14.77,2,32,sA_persistent_straggler
+550,923.75,async,2.495411,30.7292,125.7105,279,46,304,24.88,2,32,sA_persistent_straggler
+854,1309.83,async,1.666917,38.75,262.5526,479,151,304,25.2,2,32,sA_persistent_straggler
+1157,1694.05,async,2.043396,38.5938,398.4719,679,255,303,25.24,2,32,sA_persistent_straggler

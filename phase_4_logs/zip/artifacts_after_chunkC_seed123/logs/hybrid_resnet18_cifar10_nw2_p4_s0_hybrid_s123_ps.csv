@@ -1,0 +1,9 @@
+global_step,elapsed_time,current_mode,val_loss,val_acc_top1,avg_staleness,max_staleness,min_staleness,updates_in_interval,throughput_img_per_sec,num_workers,batch_size,scenario_id
+200,281.07,sync,1.858838,30.0521,0.0,0,0,400,22.77,2,32,s0_homogeneous
+400,557.43,sync,1.656394,38.5938,0.0,0,0,400,23.16,2,32,s0_homogeneous
+600,836.2,sync,1.60702,42.2917,0.0,0,0,400,22.96,2,32,s0_homogeneous
+800,1116.04,sync,1.498878,44.8958,0.0,0,0,400,22.87,2,32,s0_homogeneous
+200,276.11,sync,1.876505,29.375,0.0,0,0,400,23.18,2,32,s0_homogeneous
+400,550.27,sync,1.656666,38.5417,0.0,0,0,400,23.34,2,32,s0_homogeneous
+600,828.3,sync,1.604922,42.6562,0.0,0,0,400,23.02,2,32,s0_homogeneous
+800,1105.58,sync,1.484323,45.5208,0.0,0,0,400,23.08,2,32,s0_homogeneous

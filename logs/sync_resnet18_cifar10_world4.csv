@@ -1,0 +1,4 @@
+epoch,train_loss,val_loss,val_acc_top1,val_acc_top5,epoch_time_seconds,throughput_imgs_per_sec,world_size,batch_size
+1,1.97412,1.585914,42.56,90.44,2146.75,23.28,4,8
+2,1.444802,1.167075,58.44,95.48,2150.993,23.24,4,8
+3,0.99151,0.774074,73.28,98.08,2150.225,23.25,4,8
