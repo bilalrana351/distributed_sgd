@@ -1,0 +1,10 @@
+Scenario,Mode,Seed,Final_Accuracy_Pct,TTA_Seconds,Wall_Time_Seconds,Throughput_img_per_sec,Switches,Avg_Staleness,Sync_Pct,Notes
+sA_persistent_straggler,sync,123,45.21,1401,1866,13.7,0,0.0,100%,Worker 1 delayed 1.5s per step for ALL 800 steps. Sync waits every time.
+sA_persistent_straggler,sync,42,41.51,1397,1862,13.8,0,0.0,100%,Worker 1 delayed 1.5s per step for ALL 800 steps. Sync waits every time.
+sA_persistent_straggler,sync,777,42.97,1429,1906,13.4,0,0.0,100%,Worker 1 delayed 1.5s per step for ALL 800 steps. Sync waits every time.
+sA_persistent_straggler,async,123,39.74,—,784,44.3,0,368.3,0%,Fast but never reached 40% target. Staleness hurts accuracy.
+sA_persistent_straggler,async,42,38.75,—,785,44.3,0,369.0,0%,Fast but never reached 40% target. Staleness hurts accuracy.
+sA_persistent_straggler,async,777,38.54,641,858,41.1,0,383.3,0%,Only seed that reached 40%. Fast due to no waiting.
+sA_persistent_straggler,hybrid,123,43.12,959,1627,22.2,3,299.4,30%,"3 switches: sync→async (step 120), async→sync (step 360), sync→async (step 480). Best hybrid result."
+sA_persistent_straggler,hybrid,42,38.59,—,1694,22.5,1,398.5,15%,1 switch at step 120. Did not reach 40% target. Spent 85% in async.
+sA_persistent_straggler,hybrid,777,44.06,1506,1506,25.2,1,381.0,15%,1 switch at step 120. Reached target at 1506s. Good final accuracy.

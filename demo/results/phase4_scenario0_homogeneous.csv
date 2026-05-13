@@ -1,0 +1,8 @@
+Scenario,Mode,Seed,Final_Accuracy_Pct,TTA_Seconds,Wall_Time_Seconds,Throughput_img_per_sec,Switches,Avg_Staleness,Sync_Pct,Notes
+s0_homogeneous,sync,123,44.01,846,1118,22.8,0,0.0,100%,Both workers fast. No straggler.
+s0_homogeneous,sync,42,44.53,809,1081,23.7,0,0.0,100%,Both workers fast. No straggler.
+s0_homogeneous,sync,777,44.90,875,1167,21.9,0,0.0,100%,Both workers fast. No straggler.
+s0_homogeneous,async,123,46.61,883,1112,45.6,0,715.4,0%,High throughput but huge staleness.
+s0_homogeneous,async,42,45.26,869,1113,46.0,0,712.8,0%,High throughput but huge staleness.
+s0_homogeneous,async,777,45.94,901,1161,44.0,0,714.4,0%,High throughput but huge staleness.
+s0_homogeneous,hybrid,—,—,—,—,—,—,—,—,Not run. Controller would not fire because no straggler exists.
