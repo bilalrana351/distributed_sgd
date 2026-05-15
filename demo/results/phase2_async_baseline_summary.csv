@@ -1,2 +1,0 @@
-Phase,Mode,Dataset,Model,Workers,Batch_Size,Transport,Staleness_Tracking,Description
-Phase 2,Asynchronous (Parameter Server),CIFAR-10,ResNet-18,2,32,torch.multiprocessing.Queue + shared memory,Yes,"Workers push gradients to PS queue. PS applies each gradient immediately. Workers pull updated params every 5 steps. Staleness grows because workers use outdated weights."
