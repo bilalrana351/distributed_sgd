@@ -31,7 +31,8 @@ recovering the consistency benefits of All-Reduce aggregation.
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, List, Mapping, Tuple
 
 MODE_SYNC: int = 0
 MODE_ASYNC: int = 1
@@ -50,6 +51,51 @@ SWITCH_LOG_FIELDS: List[str] = [
 ]
 
 
+@dataclass(frozen=True)
+class ControllerConfig:
+    """Validated configuration for the hybrid mode controller."""
+
+    start_mode: str = "sync"
+    eval_interval: int = 50
+    cooldown_steps: int = 200
+    decision_window: int = 5
+    straggler_var_high: float = 0.3
+    grad_var_low: float = 0.5
+    grad_var_high: float = 1.0
+    loss_trend_high: float = 0.05
+    straggler_var_low: float = 0.10
+
+    @classmethod
+    def from_mapping(cls, values: Mapping[str, Any]) -> "ControllerConfig":
+        """Parse the YAML-style mapping and reject unsafe control values."""
+        config = cls(
+            start_mode=str(values.get("start_mode", "sync")).strip().lower(),
+            eval_interval=int(values.get("eval_interval", 50)),
+            cooldown_steps=int(values.get("cooldown_steps", 200)),
+            decision_window=int(values.get("decision_window", 5)),
+            straggler_var_high=float(values.get("straggler_var_high", 0.3)),
+            grad_var_low=float(values.get("grad_var_low", 0.5)),
+            grad_var_high=float(values.get("grad_var_high", 1.0)),
+            loss_trend_high=float(values.get("loss_trend_threshold", 0.05)),
+            straggler_var_low=float(values.get("straggler_var_low", 0.10)),
+        )
+        config.validate()
+        return config
+
+    def validate(self) -> None:
+        if self.start_mode not in {"sync", "async"}:
+            raise ValueError(
+                "start_mode must be either 'sync' or 'async', "
+                f"got {self.start_mode!r}"
+            )
+        if self.eval_interval <= 0:
+            raise ValueError("eval_interval must be greater than zero")
+        if self.cooldown_steps < 0:
+            raise ValueError("cooldown_steps must be zero or greater")
+        if self.decision_window <= 0:
+            raise ValueError("decision_window must be greater than zero")
+
+
 class ModeController:
     """
     Threshold-based switching policy with bi-directional support.
@@ -64,37 +110,30 @@ class ModeController:
             new_mode, switched, reason = controller.evaluate(signals, global_step)
     """
 
-    def __init__(self, controller_cfg: dict) -> None:
-        start = controller_cfg.get("start_mode", "sync")
-        self.current_mode: int = MODE_SYNC if start == "sync" else MODE_ASYNC
-
-        self.eval_interval: int = int(controller_cfg.get("eval_interval", 50))
-        self.cooldown_steps: int = int(
-            controller_cfg.get("cooldown_steps", 200)
+    def __init__(
+        self,
+        controller_cfg: Mapping[str, Any] | ControllerConfig,
+    ) -> None:
+        config = (
+            controller_cfg
+            if isinstance(controller_cfg, ControllerConfig)
+            else ControllerConfig.from_mapping(controller_cfg)
         )
-        self.decision_window: int = int(
-            controller_cfg.get("decision_window", 5)
-        )
-
-        # SYNC → ASYNC thresholds
-        self.straggler_var_high: float = float(
-            controller_cfg.get("straggler_var_high", 0.3)
-        )
-        self.grad_var_low: float = float(
-            controller_cfg.get("grad_var_low", 0.5)
+        config.validate()
+        self.config = config
+        self.current_mode = (
+            MODE_SYNC if config.start_mode == "sync" else MODE_ASYNC
         )
 
-        # ASYNC → SYNC thresholds
-        self.grad_var_high: float = float(
-            controller_cfg.get("grad_var_high", 1.0)
-        )
-        self.loss_trend_high: float = float(
-            controller_cfg.get("loss_trend_threshold", 0.05)
-        )
-        # Phase 4: worker times uniform again → sync is efficient
-        self.straggler_var_low: float = float(
-            controller_cfg.get("straggler_var_low", 0.10)
-        )
+        # Public aliases retained for callers and experiment logging.
+        self.eval_interval = config.eval_interval
+        self.cooldown_steps = config.cooldown_steps
+        self.decision_window = config.decision_window
+        self.straggler_var_high = config.straggler_var_high
+        self.grad_var_low = config.grad_var_low
+        self.grad_var_high = config.grad_var_high
+        self.loss_trend_high = config.loss_trend_high
+        self.straggler_var_low = config.straggler_var_low
 
         # Internal bookkeeping
         self._steps_in_mode: int = 0
@@ -124,28 +163,9 @@ class ModeController:
         if self._steps_in_mode < self.cooldown_steps:
             return self.current_mode, False, ""
 
-        trigger = False
-        reason = ""
+        reason = self._find_trigger_reason(signals)
 
-        if self.current_mode == MODE_SYNC:
-            if (
-                signals["worker_time_var"] > self.straggler_var_high
-                and signals["grad_norm_var"] < self.grad_var_low
-            ):
-                trigger = True
-                reason = "straggler_detected"
-        else:  # ASYNC
-            if signals["grad_norm_var"] > self.grad_var_high:
-                trigger = True
-                reason = "grad_instability"
-            elif signals["loss_trend"] > self.loss_trend_high:
-                trigger = True
-                reason = "loss_rising"
-            elif signals["worker_time_var"] < self.straggler_var_low:
-                trigger = True
-                reason = "straggler_resolved"
-
-        if trigger:
+        if reason:
             self._consecutive_triggers += 1
             self._trigger_reason = reason
         else:
@@ -174,6 +194,24 @@ class ModeController:
             return self.current_mode, True, final_reason
 
         return self.current_mode, False, ""
+
+    def _find_trigger_reason(self, signals: Mapping[str, float]) -> str:
+        """Return the active transition reason, or an empty string."""
+        if self.current_mode == MODE_SYNC:
+            if (
+                signals["worker_time_var"] > self.straggler_var_high
+                and signals["grad_norm_var"] < self.grad_var_low
+            ):
+                return "straggler_detected"
+            return ""
+
+        if signals["grad_norm_var"] > self.grad_var_high:
+            return "grad_instability"
+        if signals["loss_trend"] > self.loss_trend_high:
+            return "loss_rising"
+        if signals["worker_time_var"] < self.straggler_var_low:
+            return "straggler_resolved"
+        return ""
 
     # ------------------------------------------------------------------ #
     #  Properties                                                         #
